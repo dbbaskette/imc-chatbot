@@ -82,20 +82,35 @@ public class CliRunner implements CommandLineRunner {
     }
 
     private void startInteractiveMode() {
-        while (running) {
-            System.out.print("imc-chatbot> ");
-            String input = scanner.nextLine().trim();
+        try {
+            while (running) {
+                System.out.print("imc-chatbot> ");
+                
+                // Check if scanner has input available
+                if (!scanner.hasNextLine()) {
+                    logger.warn("No input available from System.in - exiting interactive mode");
+                    break;
+                }
+                
+                String input = scanner.nextLine().trim();
 
-            if (input.isEmpty()) {
-                continue;
-            }
+                if (input.isEmpty()) {
+                    continue;
+                }
 
-            try {
-                processCommand(input);
-            } catch (Exception e) {
-                System.err.println("❌ Error: " + e.getMessage());
-                logger.error("Command processing error", e);
+                try {
+                    processCommand(input);
+                } catch (Exception e) {
+                    System.err.println("❌ Error: " + e.getMessage());
+                    logger.error("Command processing error", e);
+                }
             }
+        } catch (java.util.NoSuchElementException e) {
+            logger.warn("Scanner input not available - likely running in non-interactive environment");
+            System.out.println("✅ IMC Chatbot started successfully. Use Ctrl+C to stop.");
+        } catch (Exception e) {
+            logger.error("Unexpected error in interactive mode", e);
+            System.err.println("❌ Interactive mode error: " + e.getMessage());
         }
     }
 

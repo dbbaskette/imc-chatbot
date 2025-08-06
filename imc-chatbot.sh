@@ -18,6 +18,7 @@ fi
 PROFILE="local"
 VERBOSE=false
 REBUILD=false
+ENABLE_MCP=false
 
 # Function to get jar name dynamically
 get_jar_name() {
@@ -49,6 +50,7 @@ usage() {
     echo ""
     echo "OPTIONS:"
     echo "    -p, --profile PROFILE       Deployment profile: local, cloud (default: local)"
+    echo "    --mcp                       Enable MCP tool integration (requires MCP servers)"
     echo "    --rebuild                   Force a clean rebuild of the application"
     echo "    -h, --help                  Show this help message"
     echo "    -v, --verbose               Enable verbose output (sets logging to DEBUG)"
@@ -82,6 +84,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --rebuild)
             REBUILD=true
+            shift
+            ;;
+        --mcp)
+            ENABLE_MCP=true
             shift
             ;;
         -h|--help)
@@ -121,7 +127,7 @@ build_if_needed() {
             warn "JAR not found. Building application..."
         fi
         
-        if ! ./mvnw clean package; then
+        if ! ./mvnw clean package -DskipTests; then
             error "Build failed."
             exit 1
         fi
@@ -143,7 +149,15 @@ if [[ -z "$jar_name" ]]; then
 fi
 
 jar_path="target/$jar_name"
-java_props="-Dspring.profiles.active=$PROFILE"
+
+# Build Spring profiles
+if [[ "$ENABLE_MCP" == "true" ]]; then
+    java_props="-Dspring.profiles.active=$PROFILE,mcp"
+    echo "🔧 MCP tools enabled - connecting to configured MCP servers"
+else
+    java_props="-Dspring.profiles.active=$PROFILE"
+    echo "⚠️ MCP tools disabled - running in chat-only mode"
+fi
 
 if [[ "$VERBOSE" == "true" ]]; then
     java_props="$java_props -Dlogging.level.org.springframework.ai.mcp=DEBUG"

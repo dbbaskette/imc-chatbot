@@ -3,6 +3,9 @@ package com.insurancemegacorp.imcchatbot.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -10,6 +13,8 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -26,18 +31,26 @@ public class ChatService {
     private final ChatModel chatModel;
     private final Map<String, List<Message>> conversationHistory;
     private final SystemMessage systemMessage;
+    private final SyncMcpToolCallbackProvider toolCallbackProvider;
     
-    public ChatService(ChatModel chatModel) {
+    public ChatService(ChatModel chatModel, 
+                      @Value("${imc.chatbot.system-prompt}") String systemPrompt,
+                      @Autowired(required = false) SyncMcpToolCallbackProvider toolCallbackProvider) {
         this.chatModel = chatModel;
         this.conversationHistory = new ConcurrentHashMap<>();
-        this.systemMessage = new SystemMessage("""
-            You are IMC Assistant, an AI helper for Insurance MegaCorp. 
-            You help customers and employees with insurance policies, claims, and general insurance questions.
-            Be helpful, professional, and concise in your responses.
-            If you don't know something specific about a policy or claim, ask for more details or suggest contacting customer service.
-            """);
+        this.systemMessage = new SystemMessage(systemPrompt);
+        this.toolCallbackProvider = toolCallbackProvider;
         
         log.info("✅ ChatService initialized with OpenAI ChatModel");
+        log.debug("System prompt loaded: {}", systemPrompt.length() > 100 ? 
+            systemPrompt.substring(0, 100) + "..." : systemPrompt);
+            
+        if (toolCallbackProvider != null) {
+            int toolCount = toolCallbackProvider.getToolCallbacks().length;
+            log.info("🔧 ChatService configured with {} MCP tool(s) for AI usage", toolCount);
+        } else {
+            log.info("💬 ChatService running in chat-only mode (no MCP tools available)");
+        }
     }
     
     /**
@@ -63,15 +76,37 @@ public class ChatService {
             UserMessage userMsg = new UserMessage(userMessage);
             history.add(userMsg);
             
-            // Build prompt with conversation context
-            Prompt prompt = new Prompt(history);
-            
-            // Call OpenAI
+            // Build prompt with conversation context and available tools
+            // Call OpenAI with tools available using ChatClient
             long startTime = System.currentTimeMillis();
-            ChatResponse chatResponse = chatModel.call(prompt);
-            Generation generation = chatResponse.getResult();
-            AssistantMessage output = generation.getOutput();
-            String response = output.getText();
+            String response;
+            
+            if (toolCallbackProvider != null) {
+                try {
+                    ToolCallback[] toolCallbacks = toolCallbackProvider.getToolCallbacks();
+                    if (toolCallbacks.length > 0) {
+                        log.debug("Using ChatClient with {} MCP tool(s)", toolCallbacks.length);
+                        
+                        // Use ChatClient with MCP toolCallbacks as per Spring AI documentation
+                        response = ChatClient.create(chatModel)
+                            .prompt()
+                            .messages(history)
+                            .toolCallbacks(List.of(toolCallbacks))
+                            .call()
+                            .content();
+                    } else {
+                        log.debug("No MCP tools available, using basic ChatModel call");
+                        response = chatModel.call(new Prompt(history)).getResult().getOutput().getText();
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to use MCP tools, falling back to basic chat: {}", e.getMessage());
+                    response = chatModel.call(new Prompt(history)).getResult().getOutput().getText();
+                }
+            } else {
+                log.debug("No tool provider available, using basic ChatModel call");
+                response = chatModel.call(new Prompt(history)).getResult().getOutput().getText();
+            }
+            
             long responseTime = System.currentTimeMillis() - startTime;
             
             // Add assistant response to history

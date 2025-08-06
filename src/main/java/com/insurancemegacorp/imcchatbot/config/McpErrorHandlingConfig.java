@@ -15,14 +15,14 @@ public class McpErrorHandlingConfig {
             // Check if this is the SSE null event error we want to ignore
             String errorMessage = error.getMessage();
             if (errorMessage != null && errorMessage.contains("Received unrecognized SSE event type: null")) {
-                // Silently ignore - this is a known issue with OpenMetadata SSE format
+                // Silently ignore - this is a known issue with some MCP server SSE implementations
                 return;
             }
             
             // Check for other SSE-related errors
             if (error.getCause() != null && error.getCause().getMessage() != null &&
                 error.getCause().getMessage().contains("Received unrecognized SSE event type: null")) {
-                // Silently ignore - this is a known issue with OpenMetadata SSE format
+                // Silently ignore - this is a known issue with some MCP server SSE implementations
                 return;
             }
             
@@ -35,6 +35,6 @@ public class McpErrorHandlingConfig {
             // Most SSE errors are non-fatal and just noise
         });
         
-        System.out.println("✅ Configured SSE error handling for OpenMetadata compatibility");
+        System.out.println("✅ Configured SSE error handling for MCP server compatibility");
     }
 }

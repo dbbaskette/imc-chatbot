@@ -1,0 +1,202 @@
+package com.insurancemegacorp.imcchatbot.service;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Service
+public class ChatService {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatService.class);
+    private static final int MAX_CONVERSATION_HISTORY = 20; // Maximum messages to keep in history
+    
+    private final ChatModel chatModel;
+    private final Map<String, List<Message>> conversationHistory;
+    private final SystemMessage systemMessage;
+    private final SyncMcpToolCallbackProvider toolCallbackProvider;
+    
+    public ChatService(ChatModel chatModel, 
+                      @Value("${imc.chatbot.system-prompt}") String systemPrompt,
+                      @Autowired(required = false) SyncMcpToolCallbackProvider toolCallbackProvider) {
+        this.chatModel = chatModel;
+        this.conversationHistory = new ConcurrentHashMap<>();
+        this.systemMessage = new SystemMessage(systemPrompt);
+        this.toolCallbackProvider = toolCallbackProvider;
+        
+        log.info("✅ ChatService initialized with OpenAI ChatModel");
+        log.debug("System prompt loaded: {}", systemPrompt.length() > 100 ? 
+            systemPrompt.substring(0, 100) + "..." : systemPrompt);
+            
+        if (toolCallbackProvider != null) {
+            int toolCount = toolCallbackProvider.getToolCallbacks().length;
+            log.info("🔧 ChatService configured with {} MCP tool(s) for AI usage", toolCount);
+        } else {
+            log.info("💬 ChatService running in chat-only mode (no MCP tools available)");
+        }
+    }
+    
+    /**
+     * Send a message to the AI and get a response, maintaining conversation context
+     */
+    public String chat(String sessionId, String userMessage) {
+        if (userMessage == null || userMessage.trim().isEmpty()) {
+            throw new IllegalArgumentException("User message cannot be empty");
+        }
+        
+        try {
+            log.debug("Processing chat request for session: {}, message length: {}", sessionId, userMessage.length());
+            
+            // Get or create conversation history
+            List<Message> history = conversationHistory.computeIfAbsent(sessionId, k -> new ArrayList<>());
+            
+            // Add system message if this is the first message in conversation
+            if (history.isEmpty()) {
+                history.add(systemMessage);
+            }
+            
+            // Add user message to history
+            UserMessage userMsg = new UserMessage(userMessage);
+            history.add(userMsg);
+            
+            // Build prompt with conversation context and available tools
+            // Call OpenAI with tools available using ChatClient
+            long startTime = System.currentTimeMillis();
+            String response;
+            
+            if (toolCallbackProvider != null) {
+                try {
+                    ToolCallback[] toolCallbacks = toolCallbackProvider.getToolCallbacks();
+                    if (toolCallbacks.length > 0) {
+                        log.debug("Using ChatClient with {} MCP tool(s)", toolCallbacks.length);
+                        
+                        // Use ChatClient with MCP toolCallbacks as per Spring AI documentation
+                        response = ChatClient.create(chatModel)
+                            .prompt()
+                            .messages(history)
+                            .toolCallbacks(List.of(toolCallbacks))
+                            .call()
+                            .content();
+                    } else {
+                        log.debug("No MCP tools available, using basic ChatModel call");
+                        response = chatModel.call(new Prompt(history)).getResult().getOutput().getText();
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to use MCP tools, falling back to basic chat: {}", e.getMessage());
+                    response = chatModel.call(new Prompt(history)).getResult().getOutput().getText();
+                }
+            } else {
+                log.debug("No tool provider available, using basic ChatModel call");
+                response = chatModel.call(new Prompt(history)).getResult().getOutput().getText();
+            }
+            
+            long responseTime = System.currentTimeMillis() - startTime;
+            
+            // Add assistant response to history
+            AssistantMessage assistantMsg = new AssistantMessage(response);
+            history.add(assistantMsg);
+            
+            // Manage conversation history size
+            manageConversationHistory(history);
+            
+            log.debug("Chat response generated for session: {} in {}ms, response length: {}", 
+                     sessionId, responseTime, response.length());
+            
+            return response;
+            
+        } catch (Exception e) {
+            log.error("Chat error for session {}: {}", sessionId, e.getMessage(), e);
+            return handleChatError(e);
+        }
+    }
+    
+    /**
+     * Clear conversation history for a session
+     */
+    public void clearSession(String sessionId) {
+        List<Message> removed = conversationHistory.remove(sessionId);
+        if (removed != null) {
+            log.debug("Cleared conversation history for session: {} ({} messages)", sessionId, removed.size());
+        }
+    }
+    
+    /**
+     * Get the number of active conversation sessions
+     */
+    public int getActiveSessionCount() {
+        return conversationHistory.size();
+    }
+    
+    /**
+     * Check if the ChatService is healthy (can make basic requests)
+     */
+    public boolean isHealthy() {
+        try {
+            // Make a simple test request
+            Prompt testPrompt = new Prompt("Say 'OK' if you can respond");
+            ChatResponse response = chatModel.call(testPrompt);
+            String testResponse = response.getResult().getOutput().getText();
+            return testResponse != null && !testResponse.trim().isEmpty();
+        } catch (Exception e) {
+            log.warn("Health check failed: {}", e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Manage conversation history size to prevent token limit issues
+     */
+    private void manageConversationHistory(List<Message> history) {
+        if (history.size() > MAX_CONVERSATION_HISTORY) {
+            // Remove oldest messages (keep system message if present)
+            int messagesToRemove = history.size() - MAX_CONVERSATION_HISTORY;
+            for (int i = 0; i < messagesToRemove; i++) {
+                // Remove from position 1 to preserve system message at position 0 if it exists
+                if (history.size() > MAX_CONVERSATION_HISTORY) {
+                    history.remove(1);
+                }
+            }
+            log.debug("Trimmed conversation history, removed {} old messages", messagesToRemove);
+        }
+    }
+    
+    /**
+     * Handle various types of chat errors with user-friendly messages
+     */
+    private String handleChatError(Exception e) {
+        String errorMessage = e.getMessage();
+        
+        if (errorMessage != null) {
+            // Handle specific OpenAI API errors
+            if (errorMessage.contains("rate limit") || errorMessage.contains("429")) {
+                return "I'm currently experiencing high demand. Please wait a moment and try again.";
+            } else if (errorMessage.contains("token") && errorMessage.contains("limit")) {
+                return "Your message is too long. Please try with a shorter message.";
+            } else if (errorMessage.contains("network") || errorMessage.contains("timeout")) {
+                return "I'm having trouble connecting right now. Please try again in a few moments.";
+            } else if (errorMessage.contains("authentication") || errorMessage.contains("401")) {
+                return "There's an authentication issue. Please contact support.";
+            }
+        }
+        
+        // Generic error message
+        return "I'm sorry, I encountered an error processing your request. Please try again.";
+    }
+}

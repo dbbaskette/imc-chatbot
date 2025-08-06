@@ -18,6 +18,7 @@ public class SslConfiguration {
 
     @PostConstruct
     public void configureGlobalSSL() {
+        System.out.println("SSL Configuration loaded - skipSslValidation: " + skipSslValidation);
         if (skipSslValidation) {
             try {
                 // Create a trust manager that accepts all certificates

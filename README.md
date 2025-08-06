@@ -1,324 +1,265 @@
-# Interactive MCP Client
+# IMC Chatbot - Insurance Assistant
 
-A general-purpose, interactive Model Context Protocol (MCP) client built with Spring AI for testing and interacting with MCP servers. This tool helps MCP server developers validate their implementations by providing a flexible, LLM-free client that supports multiple transport protocols.
-
-## 🚀 Quick Start
-
-```bash
-# Run with the default STDIO profile
-./mcp-client.sh
-
-# Test SSE servers
-./mcp-client.sh --profile sse
-```
-
-## 📋 Features
-
-- **Multiple Transport Protocols**: Supports STDIO, SSE (Server-Sent Events), and Streamable HTTP
-- **Spring Profile-Based Configuration**: Clean separation of transport configurations
-- **JWT Bearer Token Authentication**: Securely connect to MCP servers using JWT.
-- **AI Provider Integration**: Works with Anthropic Claude and OpenAI
-- **Command-Line Interface**: Easy-to-use script for testing MCP servers
-- **Extensible**: Add new MCP server configurations easily
+AI-powered insurance chatbot with MCP (Model Context Protocol) tool integration, built with Spring Boot 3.3.2 and Spring AI 1.0.0. Features OpenAI ChatGPT integration with transparent tool calling capabilities.
 
 ## 🏗️ Architecture
 
-This project is built on:
-- **Java 21** - Modern Java features
-- **Spring Boot 3.3.2** - Application framework
-- **Spring AI 1.0.0** - AI integration and MCP client capabilities
-- **WebFlux** - Reactive programming for SSE connections
-- **Maven** - Build and dependency management
+**API-First Design**: All interfaces (CLI, Web UI, external clients) consume the same REST API layer, ensuring consistency and scalability.
 
-### Transport Types
-
-| Transport | Description | Use Case |
-|-----------|-------------|----------|
-| **STDIO** | Process-based communication | Testing npm/node MCP servers |
-| **SSE** | Server-Sent Events over HTTP | Web-based MCP servers |
-| **Streamable HTTP** | HTTP with streaming responses | RESTful MCP servers |
-
-## 🛠️ Installation & Setup
-
-### Prerequisites
-
-- Java 21 or later
-- Maven 3.6+
-- Node.js (for STDIO MCP servers)
-- API Keys:
-  - [Anthropic API Key](https://docs.anthropic.com/en/docs/initial-setup) (required)
-  - [Brave Search API Key](https://brave.com/search/api/) (for Brave Search server)
-  - [OpenAI API Key](https://platform.openai.com/api-keys) (optional)
-
-### Environment Variables
-
-```bash
-# Required for Anthropic integration
-export ANTHROPIC_API_KEY=your-anthropic-api-key
-
-# Required for Brave Search MCP server (STDIO profile)
-export BRAVE_API_KEY=your-brave-api-key
-
-# Required for OpenMetadata MCP server (SSE profile with JWT)
-export OPENMETADATA_PAT=your-openmetadata-pat
-
-# Optional for OpenAI integration
-export OPENAI_API_KEY=your-openai-api-key
+```
+┌─────────────┐    ┌─────────────┐    ┌──────────────┐
+│   Web UI    │    │     CLI     │    │ External API │
+│ (Browser)   │    │  (Terminal) │    │   Clients    │
+└─────────────┘    └─────────────┘    └──────────────┘
+       │                   │                   │
+       └───────────────────┼───────────────────┘
+                           │
+                    ┌─────────────┐
+                    │  REST API   │
+                    │ Controllers │
+                    └─────────────┘
+                           │
+                    ┌─────────────┐
+                    │ ChatService │
+                    │ (OpenAI +   │
+                    │ MCP Tools)  │
+                    └─────────────┘
 ```
 
-### Build
+## 🚀 Quick Start
+
+### 1. Environment Setup
+
+First, set up your environment variables:
 
 ```bash
-# Clone and build
-git clone <repository-url>
-cd mcp-client
-./mvnw clean install
+./setup-env.sh
 ```
 
-## 🎯 Usage
+This will:
+- Create a `.env` file from the template
+- Prompt for your OpenAI API key
+- Guide you through configuration
 
-### Command Line Interface
-
-The `mcp-client` script provides a convenient interface:
+### 2. Run the Application
 
 ```bash
-./mcp-client [OPTIONS]
-
-OPTIONS:
-    -p, --profile PROFILE       Transport profile: stdio, sse, streamable (default: stdio)
-    -q, --question QUESTION     Question to ask the MCP server
-    -h, --help                  Show help message
-    -v, --verbose               Enable verbose output
-    --no-build                  Skip building if JAR is missing
-    --build                     Force rebuild before running
+./imc-chatbot.sh --profile local
 ```
 
-### Examples
+### 3. Access the Chatbot
+
+**CLI Interface**: Use the `chat` command in the terminal
+```
+imc-chatbot> chat
+🤖 === IMC Chatbot - Chat Mode === 🤖
+You: What types of insurance do you offer?
+```
+
+**Web Interface**: Open http://localhost:8080
+- iMessage-style chat interface
+- Real-time connection status
+- Mobile-responsive design
+- Error handling and typing indicators
+
+## 📋 Available Commands
+
+### Chat Commands
+- `chat` - Enter interactive chat mode with AI assistant
+- `exit-chat` - Return to tool mode (from within chat)
+- `clear-history` - Clear conversation history
+- `show-session` - Display session information
+
+### Tool Testing Commands
+- `list-tools` - List all available tools from MCP servers
+- `describe-tool <name>` - Show detailed tool information
+- `tool <name> <params>` - Execute a tool with parameters
+- `status` - Show system and connection status
+
+### General Commands
+- `help` - Show help message
+- `exit` - Exit the application
+
+## 🔧 Configuration
+
+### Environment Variables (.env file)
 
 ```bash
-# Basic usage with STDIO (default)
-./mcp-client
+# Required
+OPENAI_API_KEY=your_openai_api_key_here
 
-# Test with custom question
-./mcp-client --question "What tools do you provide?"
-
-# Test SSE servers
-./mcp-client --profile sse
-
-# Verbose output for debugging
-./mcp-client --verbose --question "List available functions"
-
-# Force rebuild and run
-./mcp-client --build --profile stdio
+# Optional
+SERVER_PORT=8080
+LOG_LEVEL=INFO
 ```
-
-### Direct Java Execution
-
-```bash
-# STDIO profile
-java -jar target/mcp-starter-webflux-client-0.0.1-SNAPSHOT.jar \
-  --spring.profiles.active=stdio \
-  -Dai.user.input="What tools are available?"
-
-# SSE profile
-java -jar target/mcp-starter-webflux-client-0.0.1-SNAPSHOT.jar \
-  --spring.profiles.active=sse \
-  -Dai.user.input="Search for Spring Boot tutorials"
-```
-
-## ⚙️ Configuration
 
 ### Profiles
 
-The application uses Spring profiles to determine transport configuration:
+**Local Development** (`--profile local`):
+- Uses OpenAI API with your API key
+- Connects to local MCP servers (if available)
+- Debug logging enabled
+- Web server on port 8080
 
-- **`stdio`** - Process-based MCP servers
-- **`sse`** - Server-Sent Events MCP servers  
-- **`streamable`** - Streamable HTTP MCP servers
+**Cloud Foundry** (`--profile cloud`):
+- Uses bound "chat-model" service
+- Production logging
+- Environment-provided configuration
 
-### Adding MCP Servers
+## 🌐 REST API Endpoints
 
-#### STDIO Servers
+### Chat Endpoints
+- `POST /api/chat` - Send message and receive response
+- `GET /api/chat/stream/{sessionId}?message=` - SSE streaming chat
+- `DELETE /api/chat/session/{sessionId}` - Clear session history
+- `GET /api/chat/health` - Chat service health check
 
-Edit `src/main/resources/application-stdio.properties`:
+### Tool Endpoints
+- `GET /api/tools` - List all available MCP tools
+- `GET /api/tools/{toolName}` - Get tool details
+- `POST /api/tools/{toolName}` - Invoke tool with parameters
 
-```properties
-# Your custom STDIO server
-spring.ai.mcp.client.stdio.connections.my-server.command=/path/to/server
-spring.ai.mcp.client.stdio.connections.my-server.args=--arg1,value1
-spring.ai.mcp.client.stdio.connections.my-server.env.API_KEY=${YOUR_API_KEY}
+### Administrative Endpoints
+- `GET /api/status` - System status and connection health
+
+### Example API Usage
+
+```javascript
+// Send a chat message
+const response = await fetch('/api/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    message: 'What is my policy coverage?',
+    sessionId: 'optional-session-id'
+  })
+});
+
+const data = await response.json();
+console.log(data.response);
 ```
 
-#### SSE Servers
+## 🛠️ Development
 
-Edit `src/main/resources/application-sse.properties`:
-
-```properties
-# Your SSE server with JWT authentication
-spring.ai.mcp.client.sse.connections.my-sse-server.url=http://localhost:8080/mcp
-spring.ai.mcp.client.sse.connections.my-sse-server.sse-endpoint=/sse
-spring.ai.mcp.client.sse.connections.my-sse-server.headers.Authorization=Bearer ${OPENMETADATA_PAT}
-spring.ai.mcp.client.sse.connections.my-sse-server.timeout=60s
-spring.ai.mcp.client.sse.connections.my-sse-server.connect-timeout=30s
-spring.ai.mcp.client.sse.connections.my-sse-server.read-timeout=60s
-```
-**Note on OpenMetadata SSE**: OpenMetadata servers may send `null` SSE event types which this client is configured to gracefully ignore. The URL is expected to be the base URL for the API (e.g., `/mcp`), and the `sse-endpoint` is the relative path (e.g., `/sse`).
-
-#### Streamable HTTP Servers
-
-Edit `src/main/resources/application-streamable.properties`:
-
-```properties
-# Your HTTP server
-spring.ai.mcp.client.streamable-http.connections.my-http-server.url=http://localhost:9000
-```
-
-### Common Configuration
-
-Base settings in `src/main/resources/application.properties`:
-
-```properties
-# Application settings
-spring.application.name=mcp-client
-spring.ai.mcp.client.toolcallback.enabled=true
-spring.ai.mcp.client.type=SYNC
-
-# Logging Configuration
-logging.level.io.modelcontextprotocol.client=INFO
-logging.level.io.modelcontextprotocol.spec=INFO
-logging.level.org.springframework.ai.mcp=INFO
-logging.level.reactor.core.publisher.Operators=WARN
-
-# MCP Connection Settings
-spring.ai.mcp.client.connection.resilient=true
-spring.ai.mcp.client.sse.lenient-parsing=true
-```
-
-## 🧪 Testing MCP Servers
-
-### Testing Popular MCP Servers
+### Build Commands
 
 ```bash
-# Brave Search (included in stdio profile)
-./mcp-client --question "Search for MCP documentation"
+# Build the application
+./mvnw clean package
 
-# File System Server (uncomment in application-stdio.properties)
-./mcp-client --question "List files in current directory"
+# Run with specific profile
+./imc-chatbot.sh --profile local
 
-# SQLite Server (uncomment in application-stdio.properties)
-./mcp-client --question "Show database tables"
+# Rebuild and run
+./imc-chatbot.sh --rebuild --profile local
+
+# Enable verbose logging
+./imc-chatbot.sh --verbose --profile local
 ```
-
-### Custom MCP Server Testing
-
-1.  **Set environment variables** if your server requires API keys (e.g., `OPENMETADATA_PAT`).
-2.  **Configure your server** in the appropriate profile properties file (e.g., `application-sse.properties` for OpenMetadata).
-3.  **Run the client** with your profile:
-
-    ```bash
-    ./mcp-client --profile your-profile --question "Your test question"
-    ```
-
-## 🔧 Development
 
 ### Project Structure
 
 ```
-src/main/java/com/baskettecase/mcpclient/
-├── McpClientApplication.java        # Main Spring Boot application
-├── cli/                             # Command Line Interface components
-│   └── CliRunner.java
-└── config/                          # Spring configuration classes
-    ├── McpConnectionConfigService.java
-    ├── McpErrorHandlingConfig.java  # Global SSE error handling
-    ├── SslConfiguration.java        # SSL bypass configuration
-    └── WebClientConfig.java         # Global WebClient customization
+src/main/java/com/insurancemegacorp/imcchatbot/
+├── cli/              # Command-line interface
+├── client/           # API client for internal communication
+├── config/           # Spring configuration classes
+├── controller/       # REST API controllers
+├── dto/              # Data transfer objects
+├── service/          # Business logic services
+└── util/             # Utility classes
+
+src/main/resources/
+├── static/           # Web UI assets
+├── application*.properties  # Configuration files
+└── ...
 ```
 
-### Building and Running
+## 🔌 MCP Integration
+
+The chatbot integrates with Model Context Protocol (MCP) servers for extended functionality:
+
+- **Policy Server**: Insurance policy queries and management
+- **Accident Server**: Claims processing and accident reporting
+- **Tool Discovery**: Automatic discovery and registration of available tools
+- **Transparent Invocation**: AI automatically calls tools when needed
+
+## 🔒 Security
+
+- ✅ Environment variables for API keys (never committed)
+- ✅ `.env` files are git-ignored
+- ✅ Input validation and sanitization
+- ✅ Error handling without information disclosure
+- ✅ CORS configuration for web API
+
+## 🐛 Troubleshooting
+
+### Connection Issues
+
+If you see `❌ Chat error: Chat request failed or timed out`:
+
+1. **Check your `.env` file**: Ensure `OPENAI_API_KEY` is set
+2. **Verify API key**: Test with OpenAI's API directly
+3. **Check network**: Ensure internet connectivity
+4. **Wait for startup**: The web server needs 2-3 seconds to start
+
+### API Key Issues
 
 ```bash
-# Development build
-./mvnw spring-boot:run -Dspring.profiles.active=stdio
+# Check if your API key is loaded
+echo $OPENAI_API_KEY
 
-# Production build
-./mvnw clean install
-java -jar target/mcp-starter-webflux-client-0.0.1-SNAPSHOT.jar
-
-# Run tests
-./mvnw test
+# Recreate your .env file
+./setup-env.sh
 ```
 
-### Adding New Transport Types
-
-1. Create new profile configuration file: `application-{profile}.properties`
-2. Configure connections using Spring AI MCP client properties
-3. Update the `mcp-client` script profile validation if needed
-
-### Troubleshooting
-
-**Missing API Keys**
-```bash
-# Error: ANTHROPIC_API_KEY environment variable is required
-export ANTHROPIC_API_KEY=your-key
-```
-
-**STDIO Connection Failures**
-```bash
-# Ensure Node.js and npm packages are available
-node --version
-npm list -g @modelcontextprotocol/server-brave-search
-```
-
-**SSE Connection Issues**
-
-*   **500 Internal Server Error (Missing Authorization)**: Ensure your `OPENMETADATA_PAT` environment variable is correctly set and the URL in `application-sse.properties` is configured as `http://host:port/mcp` with `sse-endpoint=/sse`.
-*   **`Received unrecognized SSE event type: null`**: This is a known compatibility issue with some OpenMetadata server versions. The client is configured to gracefully ignore these events. If you still see errors, verify `spring.ai.mcp.client.sse.lenient-parsing=true` in `application.properties`.
-
-**Build Issues**
-```bash
-# Clean and rebuild
-./mvnw clean install
-# Or force rebuild via script
-./mcp-client --build
-```
-
-### Debug Mode
-
-Enable verbose logging:
+### Port Conflicts
 
 ```bash
-# Script verbose mode
-./mcp-client --verbose
-
-# Java verbose logging
-java -jar target/mcp-starter-webflux-client-0.0.1-SNAPSHOT.jar \
-  --spring.profiles.active=stdio \
-  --logging.level.org.springframework.ai.mcp=DEBUG
+# Use a different port
+echo "SERVER_PORT=8081" >> .env
+./imc-chatbot.sh --profile local
 ```
 
-## 📚 Documentation
+## 📊 Monitoring
 
-- [Spring AI MCP Documentation](https://docs.spring.io/spring-ai/reference/api/mcp/mcp-client-boot-starter-docs.html)
-- [Model Context Protocol Specification](https://modelcontextprotocol.github.io/specification/)
-- [Spring Boot Documentation](https://docs.spring.io/spring-boot/docs/current/reference/html/)
-- [OpenMetadata Documentation](https://docs.open-metadata.org/) # Added for OpenMetadata specific context
+- **Health Checks**: Built-in health endpoints for monitoring
+- **Logging**: Configurable logging levels for debugging
+- **Session Management**: Track active chat sessions
+- **Connection Status**: Real-time MCP server connection monitoring
+
+## 🚀 Deployment
+
+### Local Development
+```bash
+./imc-chatbot.sh --profile local
+```
+
+### Cloud Foundry
+```bash
+# Deploy to CF with bound chat-model service
+cf push imc-chatbot --profile cloud
+```
+
+### Docker (Future)
+```bash
+# Build and run with Docker
+docker build -t imc-chatbot .
+docker run -p 8080:8080 --env-file .env imc-chatbot
+```
 
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/new-transport`
-3. Make your changes and add tests
-4. Commit with conventional commits: `git commit -m "feat: add new transport type"`
-5. Push and create a pull request
+2. Create a feature branch
+3. Make your changes
+4. Test with `./imc-chatbot.sh --profile local`
+5. Submit a pull request
 
 ## 📄 License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+Copyright © 2024 Insurance MegaCorp. All rights reserved.
 
-## 🆘 Support
+---
 
-- [GitHub Issues](https://github.com/your-org/mcp-client/issues) - Bug reports and feature requests
-- [Spring AI Documentation](https://docs.spring.io/spring-ai/reference/) - Framework documentation
-- [MCP Specification](https://modelcontextprotocol.github.io/specification/) - Protocol documentation
-- [OpenMetadata Slack](https://slack.open-metadata.org/) # Added for OpenMetadata community support
+🤖 **IMC Chatbot** - Your AI-powered insurance assistant, ready to help with policies, claims, and more!

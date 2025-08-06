@@ -38,6 +38,12 @@
 			<groupId>org.springframework.ai</groupId>
 			<artifactId>spring-ai-starter-mcp-client-webflux</artifactId>
 		</dependency>
+		
+		<!-- Spring AI OpenAI Integration -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-openai</artifactId>
+		</dependency>
 
 	</dependencies>
 

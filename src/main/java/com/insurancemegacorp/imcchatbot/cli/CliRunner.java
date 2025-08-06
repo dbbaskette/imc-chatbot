@@ -1,6 +1,7 @@
 package com.insurancemegacorp.imcchatbot.cli;
 
 import com.insurancemegacorp.imcchatbot.config.McpConnectionConfigService;
+import com.insurancemegacorp.imcchatbot.service.ChatService;
 import com.insurancemegacorp.imcchatbot.util.ParameterParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -16,6 +17,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Scanner;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -31,16 +35,19 @@ public class CliRunner implements CommandLineRunner {
     private final Scanner scanner = new Scanner(System.in);
     private final McpConnectionConfigService configService;
     private final ConfigurableApplicationContext applicationContext;
+    private final ChatService chatService;
     private volatile boolean running = true;
 
     public CliRunner(SyncMcpToolCallbackProvider toolCallbackProvider,
                      ParameterParser parameterParser, Environment environment, 
-                     McpConnectionConfigService configService, ConfigurableApplicationContext applicationContext) {
+                     McpConnectionConfigService configService, ConfigurableApplicationContext applicationContext,
+                     ChatService chatService) {
         this.toolCallbackProvider = toolCallbackProvider;
         this.parameterParser = parameterParser;
         this.environment = environment;
         this.configService = configService;
         this.applicationContext = applicationContext;
+        this.chatService = chatService;
     }
 
     @Override
@@ -50,23 +57,32 @@ public class CliRunner implements CommandLineRunner {
     }
 
     private void printWelcome() {
-        System.out.println("\n🤖 === Interactive MCP Client === 🤖");
-        System.out.println("Directly test your MCP servers without an LLM.");
+        System.out.println("\n🤖 === IMC Chatbot - Insurance Assistant === 🤖");
+        System.out.println("AI-powered insurance chatbot with MCP tool integration.");
         System.out.println("Active profile(s): " + String.join(", ", environment.getActiveProfiles()));
-        System.out.println("\nAvailable commands:");
-        System.out.println("  connect <name> <type> <options>  - Configure a new server (requires rebuild and restart)");
-        System.out.println("  list-tools                       - List all available tools from all connected servers");
+        
+        // Show OpenAI connection status
+        boolean openAiHealthy = chatService.isHealthy();
+        System.out.println("OpenAI Status: " + (openAiHealthy ? "✅ Connected" : "❌ Disconnected"));
+        
+        System.out.println("\n🗨️ Chat Commands:");
+        System.out.println("  chat                             - Enter interactive chat mode with AI assistant");
+        
+        System.out.println("\n🔧 Tool Testing Commands:");
+        System.out.println("  list-tools                       - List all available tools from MCP servers");
         System.out.println("  describe-tool <name>             - Show detailed information about a specific tool");
         System.out.println("  tool <name> <json-params>        - Execute a tool with JSON parameters");
         System.out.println("  status                           - Show the status of all connected servers");
+        
+        System.out.println("\n📋 General Commands:");
         System.out.println("  help                             - Show this help message");
-        System.out.println("  exit                             - Exit the client");
+        System.out.println("  exit                             - Exit the application");
         System.out.println();
     }
 
     private void startInteractiveMode() {
         while (running) {
-            System.out.print("mcp-client> ");
+            System.out.print("imc-chatbot> ");
             String input = scanner.nextLine().trim();
 
             if (input.isEmpty()) {
@@ -88,6 +104,7 @@ public class CliRunner implements CommandLineRunner {
         String args = parts.length > 1 ? parts[1] : "";
 
         switch (command) {
+            case "chat" -> handleChat();
             case "connect" -> handleConnect(args);
             case "list-tools" -> handleListTools();
             case "describe-tool" -> handleDescribeTool(args);
@@ -96,6 +113,108 @@ public class CliRunner implements CommandLineRunner {
             case "help" -> printWelcome();
             case "exit", "quit" -> handleExit();
             default -> System.out.println("Unknown command. Type 'help' for available commands.");
+        }
+    }
+
+    private void handleChat() {
+        System.out.println("\n🤖 === IMC Chatbot - Chat Mode === 🤖");
+        System.out.println("Type 'exit-chat' to return to tool mode, 'help-chat' for commands");
+        System.out.println("Connected to: OpenAI GPT-4");
+        System.out.println();
+        
+        String sessionId = UUID.randomUUID().toString();
+        boolean chatActive = true;
+        
+        while (chatActive && running) {
+            System.out.print("You: ");
+            String input = scanner.nextLine().trim();
+            
+            if (input.equalsIgnoreCase("exit-chat")) {
+                chatActive = false;
+                continue;
+            }
+            
+            if (input.equalsIgnoreCase("help-chat")) {
+                showChatHelp();
+                continue;
+            }
+            
+            if (input.equalsIgnoreCase("clear-history")) {
+                chatService.clearSession(sessionId);
+                System.out.println("🧹 Conversation history cleared.");
+                continue;
+            }
+            
+            if (input.equalsIgnoreCase("show-session")) {
+                System.out.println("📊 Session ID: " + sessionId);
+                System.out.println("📊 Active sessions: " + chatService.getActiveSessionCount());
+                continue;
+            }
+            
+            if (input.isEmpty()) {
+                continue;
+            }
+            
+            try {
+                // Show typing indicator and get response asynchronously
+                CompletableFuture<String> chatFuture = CompletableFuture.supplyAsync(() -> 
+                    chatService.chat(sessionId, input));
+                
+                // Animate typing indicator
+                animateTypingIndicator(chatFuture);
+                
+                String response = chatFuture.get();
+                System.out.println("\n🤖 IMC Assistant: " + response + "\n");
+                
+            } catch (Exception e) {
+                System.err.println("❌ Chat error: " + e.getMessage());
+                logger.error("Chat interaction error", e);
+            }
+        }
+        
+        // Clean up session
+        chatService.clearSession(sessionId);
+        System.out.println("📋 Exited chat mode. Back to tool testing mode.\n");
+    }
+    
+    private void showChatHelp() {
+        System.out.println("\n🗨️ Chat Mode Commands:");
+        System.out.println("  exit-chat        - Return to tool testing mode");
+        System.out.println("  help-chat        - Show this help message");
+        System.out.println("  clear-history    - Clear conversation history for this session");
+        System.out.println("  show-session     - Display session information");
+        System.out.println("\n💡 Just type naturally to chat with IMC Assistant!");
+        System.out.println("💡 The AI will automatically use tools when needed to help you.\n");
+    }
+    
+    private void animateTypingIndicator(CompletableFuture<String> chatFuture) {
+        System.out.print("🤖 IMC Assistant is thinking");
+        
+        // Simple typing animation
+        CompletableFuture<Void> animation = CompletableFuture.runAsync(() -> {
+            String[] dots = {"", ".", "..", "..."};
+            int dotIndex = 0;
+            
+            try {
+                while (!chatFuture.isDone()) {
+                    System.out.print("\r🤖 IMC Assistant is thinking" + dots[dotIndex % dots.length] + "   ");
+                    dotIndex++;
+                    Thread.sleep(500);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        
+        try {
+            // Wait for either the chat response or a timeout
+            chatFuture.get(30, TimeUnit.SECONDS);
+            animation.cancel(true);
+            System.out.print("\r                                        \r"); // Clear typing indicator
+        } catch (Exception e) {
+            animation.cancel(true);
+            System.out.print("\r                                        \r"); // Clear typing indicator
+            throw new RuntimeException("Chat request failed or timed out", e);
         }
     }
 
@@ -241,14 +360,22 @@ public class CliRunner implements CommandLineRunner {
     }
 
     private void handleStatus() {
-        System.out.println("=== MCP Client Status ===");
+        System.out.println("=== IMC Chatbot Status ===");
+        
+        // OpenAI Integration Status
+        boolean openAiHealthy = chatService.isHealthy();
+        System.out.println("🤖 OpenAI Integration: " + (openAiHealthy ? "✅ Connected" : "❌ Disconnected"));
+        System.out.println("📊 Active Chat Sessions: " + chatService.getActiveSessionCount());
+        
+        // MCP Server Status
+        System.out.println("\n🔧 MCP Server Status:");
         var toolCallbacks = toolCallbackProvider.getToolCallbacks();
         if (toolCallbacks.length == 0) {
-            System.out.println("No active server connections. Use 'connect' to configure a server and restart.");
+            System.out.println("No active MCP server connections.");
         } else {
             System.out.println("Found " + toolCallbacks.length + " available tool(s) from profile(s): " + String.join(", ", environment.getActiveProfiles()));
             for (var callback : toolCallbacks) {
-                System.out.println("✅ Tool: " + callback.getToolDefinition().name() + " - AVAILABLE");
+                System.out.println("✅ Tool: " + extractToolName(callback.getToolDefinition().name()) + " - AVAILABLE");
             }
         }
         System.out.println();

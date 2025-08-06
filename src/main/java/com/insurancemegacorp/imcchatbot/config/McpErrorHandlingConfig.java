@@ -1,4 +1,4 @@
-package com.baskettecase.mcpclient.config;
+package com.insurancemegacorp.imcchatbot.config;
 
 import org.springframework.context.annotation.Configuration;
 import reactor.core.publisher.Hooks;

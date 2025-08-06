@@ -1,7 +1,7 @@
-package com.baskettecase.mcpclient.cli;
+package com.insurancemegacorp.imcchatbot.cli;
 
-import com.baskettecase.mcpclient.config.McpConnectionConfigService;
-import com.baskettecase.mcpclient.util.ParameterParser;
+import com.insurancemegacorp.imcchatbot.config.McpConnectionConfigService;
+import com.insurancemegacorp.imcchatbot.util.ParameterParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

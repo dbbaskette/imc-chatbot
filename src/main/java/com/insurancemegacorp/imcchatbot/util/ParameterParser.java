@@ -1,4 +1,4 @@
-package com.baskettecase.mcpclient.util;
+package com.insurancemegacorp.imcchatbot.util;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;

@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# MCP Client - A Spring AI MCP Client Tool for Testing MCP Servers
-# Usage: ./mcp-client [options]
+# IMC Chatbot - Insurance MegaCorp AI Chatbot with MCP Tool Integration
+# Usage: ./imc-chatbot.sh [options]
 
 set -e
 
 # Default values
-PROFILE="stdio"
+PROFILE="local"
 VERBOSE=false
 REBUILD=false
 
@@ -33,13 +33,13 @@ NC='\033[0m' # No Color
 
 # Function to print usage
 usage() {
-    echo "MCP Client - An interactive tool for testing MCP servers."
+    echo "IMC Chatbot - Insurance MegaCorp AI Chatbot with MCP Tool Integration."
     echo ""
     echo "USAGE:"
-    echo "    ./mcp-client.sh [OPTIONS]"
+    echo "    ./imc-chatbot.sh [OPTIONS]"
     echo ""
     echo "OPTIONS:"
-    echo "    -p, --profile PROFILE       Transport profile: stdio, sse, streamable (default: stdio)"
+    echo "    -p, --profile PROFILE       Deployment profile: local, cloud (default: local)"
     echo "    --rebuild                   Force a clean rebuild of the application"
     echo "    -h, --help                  Show this help message"
     echo "    -v, --verbose               Enable verbose output (sets logging to DEBUG)"
@@ -93,10 +93,10 @@ done
 
 # Validate profile
 case $PROFILE in
-    stdio|sse|streamable)
+    local|cloud)
         ;;
     *)
-        error "Invalid profile: $PROFILE. Must be one of: stdio, sse, streamable"
+        error "Invalid profile: $PROFILE. Must be one of: local, cloud"
         exit 1
         ;;
 esac
@@ -122,7 +122,7 @@ build_if_needed() {
     fi
 }
 
-echo "🤖 MCP Client - Direct MCP Server Testing"
+echo "🤖 IMC Chatbot - AI-Powered Insurance Assistant"
 echo
 
 build_if_needed
@@ -140,7 +140,7 @@ if [[ "$VERBOSE" == "true" ]]; then
     java_props="$java_props -Dlogging.level.org.springframework.ai.mcp=DEBUG"
 fi
 
-echo "Starting Interactive MCP Client..."
+echo "Starting IMC Chatbot..."
 echo "Profile: $PROFILE"
 echo
 

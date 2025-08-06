@@ -9,11 +9,11 @@
 		<version>3.3.2</version>
 		<relativePath /> <!-- lookup parent from repository -->
 	</parent>
-	<groupId>com.baskettecase</groupId>
-	<artifactId>mcp-client</artifactId>
+	<groupId>com.insurancemegacorp</groupId>
+	<artifactId>imc-chatbot</artifactId>
 	<version>2.0.0</version>
-	<name>MCP Client</name>
-	<description>MCP Client</description>
+	<name>IMC Chatbot</name>
+	<description>Insurance MegaCorp Chatbot with MCP Tool Integration</description>
 	
 	<properties>
 		<java.version>21</java.version>

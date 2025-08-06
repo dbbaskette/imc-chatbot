@@ -1,18 +1,17 @@
 package com.insurancemegacorp.imcchatbot.cli;
 
-import com.insurancemegacorp.imcchatbot.config.McpConnectionConfigService;
 import com.insurancemegacorp.imcchatbot.service.ChatService;
 import com.insurancemegacorp.imcchatbot.util.ParameterParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -33,19 +32,17 @@ public class CliRunner implements CommandLineRunner {
     private final ParameterParser parameterParser;
     private final Environment environment;
     private final Scanner scanner = new Scanner(System.in);
-    private final McpConnectionConfigService configService;
     private final ConfigurableApplicationContext applicationContext;
     private final ChatService chatService;
     private volatile boolean running = true;
 
-    public CliRunner(SyncMcpToolCallbackProvider toolCallbackProvider,
+    public CliRunner(@Autowired(required = false) SyncMcpToolCallbackProvider toolCallbackProvider,
                      ParameterParser parameterParser, Environment environment, 
-                     McpConnectionConfigService configService, ConfigurableApplicationContext applicationContext,
+                     ConfigurableApplicationContext applicationContext,
                      ChatService chatService) {
         this.toolCallbackProvider = toolCallbackProvider;
         this.parameterParser = parameterParser;
         this.environment = environment;
-        this.configService = configService;
         this.applicationContext = applicationContext;
         this.chatService = chatService;
     }
@@ -105,7 +102,6 @@ public class CliRunner implements CommandLineRunner {
 
         switch (command) {
             case "chat" -> handleChat();
-            case "connect" -> handleConnect(args);
             case "list-tools" -> handleListTools();
             case "describe-tool" -> handleDescribeTool(args);
             case "tool" -> handleToolInvocation(args);
@@ -218,125 +214,16 @@ public class CliRunner implements CommandLineRunner {
         }
     }
 
-    private void handleConnect(String args) {
-        if (args.isBlank()) {
-            printConnectUsage();
-            return;
-        }
-
-        String[] parts = args.split("\\s+");
-        if (parts.length < 4) {
-            printConnectUsage();
-            return;
-        }
-
-        String name = parts[0];
-        String type = parts[1].toLowerCase();
-
-        try {
-            switch (type) {
-                case "sse":
-                    handleSseConnect(name, parts);
-                    break;
-                case "stdio":
-                    handleStdioConnect(name, parts);
-                    break;
-                default:
-                    System.out.println("❌ Unknown transport type: '" + type + "'. Must be 'stdio' or 'sse'.");
-                    break;
-            }
-        } catch (IOException e) {
-            System.out.println("❌ Failed to write configuration: " + e.getMessage());
-            logger.error("Error writing to properties file", e);
-        }
-        System.out.println();
-    }
-
-    private void printConnectUsage() {
-        System.out.println("Usage: connect <name> <type> <options>");
-        System.out.println("  <type> can be 'stdio' or 'sse'.");
-        System.out.println("\nFor 'stdio':");
-        System.out.println("  connect <name> stdio --jar <path/to.jar> [profile]");
-        System.out.println("  connect <name> stdio --native <command> [args...]");
-        System.out.println("  Example (JAR):   connect myserver stdio --jar /path/to/server.jar dev");
-        System.out.println("  Example (native): connect myexec stdio --native /path/to/executable arg1");
-
-        System.out.println("\nFor 'sse':");
-        System.out.println("  connect <name> sse --url <http://host:port>");
-        System.out.println("  Example: connect myserver sse --url http://localhost:8080");
-        System.out.println();
-    }
-
-    private void handleSseConnect(String name, String[] parts) throws IOException {
-        if (parts.length < 4 || !parts[2].equals("--url")) {
-            printConnectUsage();
-            return;
-        }
-        if (configService.sseConnectionExists(name)) {
-            System.out.println("⚠️  An SSE connection named '" + name + "' already exists.");
-            return;
-        }
-        String location = parts[3];
-        configService.addSseConnection(name, location);
-        System.out.println("\n✅ SSE server '" + name + "' configured successfully!");
-        System.out.println("   To activate, rebuild and restart the client:");
-        System.out.println("   ./mcp-client.sh --rebuild --profile sse");
-    }
-
-    private void handleStdioConnect(String name, String[] parts) throws IOException {
-        if (parts.length < 4) {
-            printConnectUsage();
-            return;
-        }
-        if (configService.stdioConnectionExists(name)) {
-            System.out.println("⚠️  An STDIO connection named '" + name + "' already exists.");
-            return;
-        }
-
-        String subType = parts[2];
-        switch (subType) {
-            case "--jar":
-                if (parts.length < 4) {
-                    printConnectUsage();
-                    return;
-                }
-                String jarPath = parts[3];
-                String profile = parts.length > 4 ? parts[4] : null;
-                configService.addStdioConnection(name, jarPath, profile);
-                System.out.println("\n✅ STDIO JAR server '" + name + "' configured successfully!");
-                if (profile != null) {
-                    System.out.println("   Spring profile: " + profile);
-                }
-                break;
-            case "--native":
-                if (parts.length < 4) {
-                    printConnectUsage();
-                    return;
-                }
-                String command = parts[3];
-                String[] commandArgs = new String[0];
-                if (parts.length > 4) {
-                    commandArgs = Arrays.copyOfRange(parts, 4, parts.length);
-                }
-                configService.addStdioNativeConnection(name, command, commandArgs);
-                System.out.println("\n✅ STDIO native server '" + name + "' configured successfully!");
-                break;
-            default:
-                System.out.println("❌ Invalid option for stdio. Must be '--jar' or '--native'.");
-                printConnectUsage();
-                return;
-        }
-
-        System.out.println("   To activate, rebuild and restart the client:");
-        System.out.println("   ./mcp-client.sh --rebuild --profile stdio");
-    }
-
     private void handleListTools() {
+        if (toolCallbackProvider == null) {
+            System.out.println("Tool integration is disabled. Check 'spring.ai.mcp.client.toolcallback.enabled' property.");
+            return;
+        }
         System.out.println("=== Available Tools ===");
         var toolCallbacks = toolCallbackProvider.getToolCallbacks();
         
         if (toolCallbacks.length == 0) {
-            System.out.println("No tools available. Use 'connect' to configure a server and restart.");
+            System.out.println("No tools available from connected MCP servers.");
             System.out.println();
             return;
         }
@@ -369,13 +256,17 @@ public class CliRunner implements CommandLineRunner {
         
         // MCP Server Status
         System.out.println("\n🔧 MCP Server Status:");
-        var toolCallbacks = toolCallbackProvider.getToolCallbacks();
-        if (toolCallbacks.length == 0) {
-            System.out.println("No active MCP server connections.");
+        if (toolCallbackProvider == null) {
+            System.out.println("Tool integration is disabled.");
         } else {
-            System.out.println("Found " + toolCallbacks.length + " available tool(s) from profile(s): " + String.join(", ", environment.getActiveProfiles()));
-            for (var callback : toolCallbacks) {
-                System.out.println("✅ Tool: " + extractToolName(callback.getToolDefinition().name()) + " - AVAILABLE");
+            var toolCallbacks = toolCallbackProvider.getToolCallbacks();
+            if (toolCallbacks.length == 0) {
+                System.out.println("No tools available from connected MCP servers.");
+            } else {
+                System.out.println("Found " + toolCallbacks.length + " available tool(s) from profile(s): " + String.join(", ", environment.getActiveProfiles()));
+                for (var callback : toolCallbacks) {
+                    System.out.println("✅ Tool: " + extractToolName(callback.getToolDefinition().name()) + " - AVAILABLE");
+                }
             }
         }
         System.out.println();
@@ -384,6 +275,10 @@ public class CliRunner implements CommandLineRunner {
     private void handleDescribeTool(String toolName) {
         if (toolName.isBlank()) {
             System.out.println("Usage: describe-tool <tool-name>");
+            return;
+        }
+        if (toolCallbackProvider == null) {
+            System.out.println("Tool integration is disabled. Check 'spring.ai.mcp.client.toolcallback.enabled' property.");
             return;
         }
 
@@ -426,6 +321,10 @@ public class CliRunner implements CommandLineRunner {
             System.out.println("  tool capitalizeText text=\"hello world\"");
             System.out.println("  tool capitalizeText '{\"text\": \"hello world\"}'");
             System.out.println("Tip: Use 'describe-tool <name>' for detailed parameter information");
+            return;
+        }
+        if (toolCallbackProvider == null) {
+            System.out.println("Tool integration is disabled. Check 'spring.ai.mcp.client.toolcallback.enabled' property.");
             return;
         }
 

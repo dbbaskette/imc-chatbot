@@ -11,7 +11,7 @@
 	</parent>
 	<groupId>com.insurancemegacorp</groupId>
 	<artifactId>imc-chatbot</artifactId>
-	<version>2.1.0</version>
+	<version>2.1.1</version>
 	<name>IMC Chatbot</name>
 	<description>Insurance MegaCorp Chatbot with MCP Tool Integration</description>
 	

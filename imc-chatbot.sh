@@ -5,6 +5,15 @@
 
 set -e
 
+# Load environment variables from .env file if it exists
+if [ -f ".env" ]; then
+    echo "🔧 Loading environment variables from .env file..."
+    export $(cat .env | grep -v '^#' | grep -v '^$' | xargs)
+else
+    echo "⚠️  No .env file found. Run './setup-env.sh' to create one."
+    echo "⚠️  You'll need to set OPENAI_API_KEY manually or the chat won't work."
+fi
+
 # Default values
 PROFILE="local"
 VERBOSE=false

@@ -1,20 +1,21 @@
 package com.insurancemegacorp.imcchatbot.cli;
 
-import com.insurancemegacorp.imcchatbot.service.ChatService;
+import com.insurancemegacorp.imcchatbot.client.ApiClient;
+import com.insurancemegacorp.imcchatbot.dto.ChatResponse;
+import com.insurancemegacorp.imcchatbot.dto.StatusResponse;
+import com.insurancemegacorp.imcchatbot.dto.ToolInfo;
 import com.insurancemegacorp.imcchatbot.util.ParameterParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Scanner;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -27,28 +28,31 @@ public class CliRunner implements CommandLineRunner {
 
     private static final Logger logger = LoggerFactory.getLogger(CliRunner.class);
 
-
-    private final SyncMcpToolCallbackProvider toolCallbackProvider;
+    private final ApiClient apiClient;
     private final ParameterParser parameterParser;
     private final Environment environment;
     private final Scanner scanner = new Scanner(System.in);
     private final ConfigurableApplicationContext applicationContext;
-    private final ChatService chatService;
     private volatile boolean running = true;
 
-    public CliRunner(@Autowired(required = false) SyncMcpToolCallbackProvider toolCallbackProvider,
+    public CliRunner(ApiClient apiClient,
                      ParameterParser parameterParser, Environment environment, 
-                     ConfigurableApplicationContext applicationContext,
-                     ChatService chatService) {
-        this.toolCallbackProvider = toolCallbackProvider;
+                     ConfigurableApplicationContext applicationContext) {
+        this.apiClient = apiClient;
         this.parameterParser = parameterParser;
         this.environment = environment;
         this.applicationContext = applicationContext;
-        this.chatService = chatService;
     }
 
     @Override
     public void run(String... args) {
+        // Wait a moment for the web server to start
+        try {
+            Thread.sleep(2000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        
         printWelcome();
         startInteractiveMode();
     }
@@ -59,7 +63,7 @@ public class CliRunner implements CommandLineRunner {
         System.out.println("Active profile(s): " + String.join(", ", environment.getActiveProfiles()));
         
         // Show OpenAI connection status
-        boolean openAiHealthy = chatService.isHealthy();
+        boolean openAiHealthy = apiClient.isHealthy();
         System.out.println("OpenAI Status: " + (openAiHealthy ? "✅ Connected" : "❌ Disconnected"));
         
         System.out.println("\n🗨️ Chat Commands:");
@@ -115,7 +119,7 @@ public class CliRunner implements CommandLineRunner {
     private void handleChat() {
         System.out.println("\n🤖 === IMC Chatbot - Chat Mode === 🤖");
         System.out.println("Type 'exit-chat' to return to tool mode, 'help-chat' for commands");
-        System.out.println("Connected to: OpenAI GPT-4");
+        System.out.println("Connected to: OpenAI GPT-4 (via REST API)");
         System.out.println();
         
         String sessionId = UUID.randomUUID().toString();
@@ -136,14 +140,23 @@ public class CliRunner implements CommandLineRunner {
             }
             
             if (input.equalsIgnoreCase("clear-history")) {
-                chatService.clearSession(sessionId);
-                System.out.println("🧹 Conversation history cleared.");
+                try {
+                    apiClient.clearSession(sessionId);
+                    System.out.println("🧹 Conversation history cleared.");
+                } catch (Exception e) {
+                    System.err.println("❌ Error clearing history: " + e.getMessage());
+                }
                 continue;
             }
             
             if (input.equalsIgnoreCase("show-session")) {
-                System.out.println("📊 Session ID: " + sessionId);
-                System.out.println("📊 Active sessions: " + chatService.getActiveSessionCount());
+                try {
+                    StatusResponse status = apiClient.getStatus();
+                    System.out.println("📊 Session ID: " + sessionId);
+                    System.out.println("📊 Active sessions: " + status.activeChatSessions());
+                } catch (Exception e) {
+                    System.err.println("❌ Error getting session info: " + e.getMessage());
+                }
                 continue;
             }
             
@@ -153,14 +166,19 @@ public class CliRunner implements CommandLineRunner {
             
             try {
                 // Show typing indicator and get response asynchronously
-                CompletableFuture<String> chatFuture = CompletableFuture.supplyAsync(() -> 
-                    chatService.chat(sessionId, input));
+                CompletableFuture<ChatResponse> chatFuture = CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return apiClient.sendMessage(input, sessionId);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
                 
                 // Animate typing indicator
                 animateTypingIndicator(chatFuture);
                 
-                String response = chatFuture.get();
-                System.out.println("\n🤖 IMC Assistant: " + response + "\n");
+                ChatResponse response = chatFuture.get();
+                System.out.println("\n🤖 IMC Assistant: " + response.response() + "\n");
                 
             } catch (Exception e) {
                 System.err.println("❌ Chat error: " + e.getMessage());
@@ -169,7 +187,11 @@ public class CliRunner implements CommandLineRunner {
         }
         
         // Clean up session
-        chatService.clearSession(sessionId);
+        try {
+            apiClient.clearSession(sessionId);
+        } catch (Exception e) {
+            logger.debug("Error clearing session: {}", e.getMessage());
+        }
         System.out.println("📋 Exited chat mode. Back to tool testing mode.\n");
     }
     
@@ -183,7 +205,7 @@ public class CliRunner implements CommandLineRunner {
         System.out.println("💡 The AI will automatically use tools when needed to help you.\n");
     }
     
-    private void animateTypingIndicator(CompletableFuture<String> chatFuture) {
+    private void animateTypingIndicator(CompletableFuture<ChatResponse> chatFuture) {
         System.out.print("🤖 IMC Assistant is thinking");
         
         // Simple typing animation
@@ -215,61 +237,60 @@ public class CliRunner implements CommandLineRunner {
     }
 
     private void handleListTools() {
-        if (toolCallbackProvider == null) {
-            System.out.println("Tool integration is disabled. Check 'spring.ai.mcp.client.toolcallback.enabled' property.");
-            return;
-        }
-        System.out.println("=== Available Tools ===");
-        var toolCallbacks = toolCallbackProvider.getToolCallbacks();
-        
-        if (toolCallbacks.length == 0) {
-            System.out.println("No tools available from connected MCP servers.");
-            System.out.println();
-            return;
-        }
-        
-        System.out.println("Found " + toolCallbacks.length + " tool(s):\n");
-        
-        for (int i = 0; i < toolCallbacks.length; i++) {
-            var callback = toolCallbacks[i];
-            var definition = callback.getToolDefinition();
+        try {
+            List<ToolInfo> tools = apiClient.getTools();
+            System.out.println("=== Available Tools ===");
             
-            String shortName = extractToolName(definition.name());
+            if (tools.isEmpty()) {
+                System.out.println("No tools available from connected MCP servers.");
+                System.out.println();
+                return;
+            }
             
-            System.out.printf("%d. %s\n", i + 1, shortName);
-            System.out.printf("   Description: %s\n", definition.description());
-            System.out.printf("   Usage: tool %s key=value [key2=value2...] or tool %s '{\"json\":\"object\"}'\n", 
-                             shortName, shortName);
-            System.out.println();
+            System.out.println("Found " + tools.size() + " tool(s):\n");
+            
+            for (int i = 0; i < tools.size(); i++) {
+                ToolInfo tool = tools.get(i);
+                System.out.printf("%d. %s\n", i + 1, tool.name());
+                System.out.printf("   Description: %s\n", tool.description());
+                System.out.printf("   Usage: tool %s key=value [key2=value2...] or tool %s '{\"json\":\"object\"}'\n", 
+                                 tool.name(), tool.name());
+                System.out.println();
+            }
+            
+            System.out.println("💡 Tip: Use 'describe-tool <name>' for detailed parameter information");
+        } catch (Exception e) {
+            System.err.println("❌ Error listing tools: " + e.getMessage());
+            logger.error("Tool listing error", e);
         }
-        
-        System.out.println("💡 Tip: Use 'describe-tool <name>' for detailed parameter information");
     }
 
     private void handleStatus() {
-        System.out.println("=== IMC Chatbot Status ===");
-        
-        // OpenAI Integration Status
-        boolean openAiHealthy = chatService.isHealthy();
-        System.out.println("🤖 OpenAI Integration: " + (openAiHealthy ? "✅ Connected" : "❌ Disconnected"));
-        System.out.println("📊 Active Chat Sessions: " + chatService.getActiveSessionCount());
-        
-        // MCP Server Status
-        System.out.println("\n🔧 MCP Server Status:");
-        if (toolCallbackProvider == null) {
-            System.out.println("Tool integration is disabled.");
-        } else {
-            var toolCallbacks = toolCallbackProvider.getToolCallbacks();
-            if (toolCallbacks.length == 0) {
-                System.out.println("No tools available from connected MCP servers.");
+        try {
+            StatusResponse status = apiClient.getStatus();
+            System.out.println("=== IMC Chatbot Status ===");
+            
+            // OpenAI Integration Status
+            System.out.println("🤖 OpenAI Integration: " + (status.openaiHealthy() ? "✅ Connected" : "❌ Disconnected"));
+            System.out.println("📊 Active Chat Sessions: " + status.activeChatSessions());
+            
+            // MCP Server Status
+            System.out.println("\n🔧 MCP Server Status:");
+            if (!status.toolsEnabled()) {
+                System.out.println("Tool integration is disabled.");
             } else {
-                System.out.println("Found " + toolCallbacks.length + " available tool(s) from profile(s): " + String.join(", ", environment.getActiveProfiles()));
-                for (var callback : toolCallbacks) {
-                    System.out.println("✅ Tool: " + extractToolName(callback.getToolDefinition().name()) + " - AVAILABLE");
+                if (status.availableTools() == 0) {
+                    System.out.println("No tools available from connected MCP servers.");
+                } else {
+                    System.out.println("Found " + status.availableTools() + " available tool(s) from profile(s): " + 
+                                     String.join(", ", status.activeProfiles()));
                 }
             }
+            System.out.println();
+        } catch (Exception e) {
+            System.err.println("❌ Error getting status: " + e.getMessage());
+            logger.error("Status check error", e);
         }
-        System.out.println();
     }
 
     private void handleDescribeTool(String toolName) {
@@ -277,41 +298,39 @@ public class CliRunner implements CommandLineRunner {
             System.out.println("Usage: describe-tool <tool-name>");
             return;
         }
-        if (toolCallbackProvider == null) {
-            System.out.println("Tool integration is disabled. Check 'spring.ai.mcp.client.toolcallback.enabled' property.");
-            return;
-        }
 
-        org.springframework.ai.tool.ToolCallback targetTool = findToolByName(toolName);
-
-        if (targetTool == null) {
-            System.out.println("❌ Tool not found: " + toolName);
-            System.out.println("Available tools:");
-            var toolCallbacks = toolCallbackProvider.getToolCallbacks();
-            for (var callback : toolCallbacks) {
-                String shortName = extractToolName(callback.getToolDefinition().name());
-                System.out.println("  - " + shortName);
+        try {
+            ToolInfo tool = apiClient.getTool(toolName);
+            if (tool == null) {
+                System.out.println("❌ Tool not found: " + toolName);
+                List<ToolInfo> tools = apiClient.getTools();
+                if (!tools.isEmpty()) {
+                    System.out.println("Available tools:");
+                    for (ToolInfo availableTool : tools) {
+                        System.out.println("  - " + availableTool.name());
+                    }
+                }
+                return;
             }
-            return;
-        }
 
-        var definition = targetTool.getToolDefinition();
-        String shortName = extractToolName(definition.name());
-        
-        System.out.println("\n=== Tool Details ===");
-        System.out.println("Name: " + shortName);
-        System.out.println("Full name: " + definition.name());
-        System.out.println("Description: " + definition.description());
-        System.out.println("Usage: tool " + shortName + " <json-params>");
-        
-        String inputSchema = definition.inputSchema();
-        if (inputSchema != null && !inputSchema.trim().isEmpty()) {
-            System.out.println("Parameters Schema:");
-            System.out.println(formatJsonSchema(inputSchema));
-        } else {
-            System.out.println("Parameters: No parameters required");
+            System.out.println("\n=== Tool Details ===");
+            System.out.println("Name: " + tool.name());
+            System.out.println("Full name: " + tool.fullName());
+            System.out.println("Description: " + tool.description());
+            System.out.println("Usage: tool " + tool.name() + " <json-params>");
+            
+            String inputSchema = tool.inputSchema();
+            if (inputSchema != null && !inputSchema.trim().isEmpty()) {
+                System.out.println("Parameters Schema:");
+                System.out.println(formatJsonSchema(inputSchema));
+            } else {
+                System.out.println("Parameters: No parameters required");
+            }
+            System.out.println();
+        } catch (Exception e) {
+            System.err.println("❌ Error describing tool: " + e.getMessage());
+            logger.error("Tool description error", e);
         }
-        System.out.println();
     }
 
     private void handleToolInvocation(String args) {
@@ -321,10 +340,6 @@ public class CliRunner implements CommandLineRunner {
             System.out.println("  tool capitalizeText text=\"hello world\"");
             System.out.println("  tool capitalizeText '{\"text\": \"hello world\"}'");
             System.out.println("Tip: Use 'describe-tool <name>' for detailed parameter information");
-            return;
-        }
-        if (toolCallbackProvider == null) {
-            System.out.println("Tool integration is disabled. Check 'spring.ai.mcp.client.toolcallback.enabled' property.");
             return;
         }
 
@@ -337,29 +352,20 @@ public class CliRunner implements CommandLineRunner {
         String toolName = parts[0];
         String parameterString = parts[1];
 
-        org.springframework.ai.tool.ToolCallback targetTool = findToolByName(toolName);
-
-        if (targetTool == null) {
-            System.out.println("❌ Tool not found: " + toolName);
-            System.out.println("Available tools:");
-            var toolCallbacks = toolCallbackProvider.getToolCallbacks();
-            for (var callback : toolCallbacks) {
-                String shortName = extractToolName(callback.getToolDefinition().name());
-                System.out.println("  - " + shortName);
-            }
-            return;
-        }
-
         try {
-            String shortName = extractToolName(targetTool.getToolDefinition().name());
             String jsonParameters = convertToJson(parameterString);
+            ObjectMapper mapper = new ObjectMapper();
+            @SuppressWarnings("unchecked")
+            Map<String, Object> parameters = mapper.readValue(jsonParameters, Map.class);
             
-            System.out.println("🔧 Invoking tool: " + shortName);
+            System.out.println("🔧 Invoking tool: " + toolName);
             System.out.println("📥 Parameters: " + jsonParameters);
-            String result = targetTool.call(jsonParameters);
+            
+            String result = apiClient.invokeTool(toolName, parameters);
             System.out.println("✅ Result:");
             System.out.println(result);
             System.out.println();
+            
         } catch (Exception e) {
             System.err.println("❌ Tool invocation failed: " + e.getMessage());
             logger.error("Tool invocation error", e);
@@ -367,21 +373,8 @@ public class CliRunner implements CommandLineRunner {
     }
 
     private void handleExit() {
-        System.out.println("Shutting down MCP client... Goodbye!");
-        // Force exit because applicationContext.close() can hang waiting for child processes.
+        System.out.println("Shutting down IMC Chatbot... Goodbye!");
         System.exit(0);
-    }
-
-    private String extractToolName(String fullName) {
-        // Extract tool name from patterns like: spring_ai_mcp_client_test_capitalizeText -> capitalizeText
-        // Pattern: [prefix]_[connectionName]_[toolName] -> toolName
-        if (fullName == null || !fullName.contains("_")) {
-            return fullName;
-        }
-        
-        // Split by underscore and take the last part as the tool name
-        String[] parts = fullName.split("_");
-        return parts[parts.length - 1];
     }
 
     private String formatJsonSchema(String schema) {
@@ -404,7 +397,6 @@ public class CliRunner implements CommandLineRunner {
         }
         
         // Parse key=value pairs and convert to JSON
-        // Use the existing ParameterParser to handle key=value parsing
         String[] paramPairs = parseArguments(parameterString);
         var parsedParams = parameterParser.parseParameters(paramPairs);
         
@@ -422,27 +414,5 @@ public class CliRunner implements CommandLineRunner {
             args.add(matcher.group(0));
         }
         return args.toArray(new String[0]);
-    }
-
-    private org.springframework.ai.tool.ToolCallback findToolByName(String toolName) {
-        var toolCallbacks = toolCallbackProvider.getToolCallbacks();
-        
-        // First try to find by short name
-        for (var callback : toolCallbacks) {
-            String fullName = callback.getToolDefinition().name();
-            String shortName = extractToolName(fullName);
-            if (shortName.equals(toolName)) {
-                return callback;
-            }
-        }
-        
-        // Then try to find by full name
-        for (var callback : toolCallbacks) {
-            if (callback.getToolDefinition().name().equals(toolName)) {
-                return callback;
-            }
-        }
-        
-        return null;
     }
 }

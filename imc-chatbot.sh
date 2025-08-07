@@ -49,8 +49,9 @@ usage() {
     echo "    ./imc-chatbot.sh [OPTIONS]"
     echo ""
     echo "OPTIONS:"
-    echo "    -p, --profile PROFILE       Deployment profile: local, cloud (default: local)"
-    echo "    --mcp                       Enable MCP tool integration (requires MCP servers)"
+    echo "    --local                     Use local development profile (default)"  
+    echo "    --cloud                     Use cloud deployment profile"
+    echo "    --mcp                       Enable MCP tool integration (can combine with --local or --cloud)"
     echo "    --rebuild                   Force a clean rebuild of the application"
     echo "    -h, --help                  Show this help message"
     echo "    -v, --verbose               Enable verbose output (sets logging to DEBUG)"
@@ -78,9 +79,13 @@ warn() {
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -p|--profile)
-            PROFILE="$2"
-            shift 2
+        --local)
+            PROFILE="local"
+            shift
+            ;;
+        --cloud)
+            PROFILE="cloud"
+            shift
             ;;
         --rebuild)
             REBUILD=true

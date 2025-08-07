@@ -11,7 +11,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.Generation;
+
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.tool.ToolCallback;
@@ -32,14 +32,17 @@ public class ChatService {
     private final Map<String, List<Message>> conversationHistory;
     private final SystemMessage systemMessage;
     private final SyncMcpToolCallbackProvider toolCallbackProvider;
+    private final McpConnectionHealthService connectionHealthService;
     
     public ChatService(ChatModel chatModel, 
                       @Value("${imc.chatbot.system-prompt}") String systemPrompt,
-                      @Autowired(required = false) SyncMcpToolCallbackProvider toolCallbackProvider) {
+                      @Autowired(required = false) SyncMcpToolCallbackProvider toolCallbackProvider,
+                      @Autowired(required = false) McpConnectionHealthService connectionHealthService) {
         this.chatModel = chatModel;
         this.conversationHistory = new ConcurrentHashMap<>();
         this.systemMessage = new SystemMessage(systemPrompt);
         this.toolCallbackProvider = toolCallbackProvider;
+        this.connectionHealthService = connectionHealthService;
         
         log.info("✅ ChatService initialized with OpenAI ChatModel");
         log.debug("System prompt loaded: {}", systemPrompt.length() > 100 ? 
@@ -82,9 +85,18 @@ public class ChatService {
             String response;
             
             if (toolCallbackProvider != null) {
+                // Check connection health before attempting to use MCP tools
+                boolean connectionHealthy = connectionHealthService == null || connectionHealthService.isConnectionHealthy();
+                
+                if (!connectionHealthy && connectionHealthService != null) {
+                    log.warn("⚠️  MCP connection unhealthy, triggering reconnection attempt");
+                    connectionHealthService.triggerReconnectionAttempt();
+                    connectionHealthy = connectionHealthService.isConnectionHealthy();
+                }
+                
                 try {
                     ToolCallback[] toolCallbacks = toolCallbackProvider.getToolCallbacks();
-                    if (toolCallbacks.length > 0) {
+                    if (toolCallbacks.length > 0 && connectionHealthy) {
                         log.debug("Using ChatClient with {} MCP tool(s)", toolCallbacks.length);
                         
                         // Use ChatClient with MCP toolCallbacks as per Spring AI documentation
@@ -95,11 +107,21 @@ public class ChatService {
                             .call()
                             .content();
                     } else {
-                        log.debug("No MCP tools available, using basic ChatModel call");
+                        if (!connectionHealthy) {
+                            log.warn("MCP connection unhealthy, using basic chat without tools");
+                        } else {
+                            log.debug("No MCP tools available, using basic ChatModel call");
+                        }
                         response = chatModel.call(new Prompt(history)).getResult().getOutput().getText();
                     }
                 } catch (Exception e) {
                     log.warn("Failed to use MCP tools, falling back to basic chat: {}", e.getMessage());
+                    
+                    // Mark connection as unhealthy if we get repeated failures
+                    if (connectionHealthService != null) {
+                        connectionHealthService.triggerReconnectionAttempt();
+                    }
+                    
                     response = chatModel.call(new Prompt(history)).getResult().getOutput().getText();
                 }
             } else {
@@ -108,6 +130,11 @@ public class ChatService {
             }
             
             long responseTime = System.currentTimeMillis() - startTime;
+            
+            // Ensure response is not null
+            if (response == null) {
+                response = "I apologize, but I'm unable to generate a response at this time. Please try again.";
+            }
             
             // Add assistant response to history
             AssistantMessage assistantMsg = new AssistantMessage(response);

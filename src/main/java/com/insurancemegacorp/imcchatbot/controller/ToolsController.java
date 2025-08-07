@@ -1,6 +1,7 @@
 package com.insurancemegacorp.imcchatbot.controller;
 
 import com.insurancemegacorp.imcchatbot.dto.ToolInfo;
+import com.insurancemegacorp.imcchatbot.service.McpConnectionHealthService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,10 +24,13 @@ public class ToolsController {
     private static final Logger log = LoggerFactory.getLogger(ToolsController.class);
     
     private final SyncMcpToolCallbackProvider toolCallbackProvider;
+    private final McpConnectionHealthService connectionHealthService;
     private final ObjectMapper objectMapper;
     
-    public ToolsController(@Autowired(required = false) SyncMcpToolCallbackProvider toolCallbackProvider) {
+    public ToolsController(@Autowired(required = false) SyncMcpToolCallbackProvider toolCallbackProvider,
+                          @Autowired(required = false) McpConnectionHealthService connectionHealthService) {
         this.toolCallbackProvider = toolCallbackProvider;
+        this.connectionHealthService = connectionHealthService;
         this.objectMapper = new ObjectMapper();
     }
     
@@ -145,5 +149,51 @@ public class ToolsController {
         }
         
         return null;
+    }
+    
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, Object>> getConnectionHealth() {
+        Map<String, Object> healthInfo = new java.util.HashMap<>();
+        
+        if (connectionHealthService == null) {
+            healthInfo.put("status", "unavailable");
+            healthInfo.put("message", "MCP health monitoring not available (MCP profile not active)");
+            return ResponseEntity.ok(healthInfo);
+        }
+        
+        boolean isHealthy = connectionHealthService.isConnectionHealthy();
+        int toolCount = connectionHealthService.getAvailableToolCount();
+        
+        healthInfo.put("status", isHealthy ? "healthy" : "unhealthy");
+        healthInfo.put("toolCount", toolCount);
+        healthInfo.put("lastSuccessfulCheck", connectionHealthService.getLastSuccessfulCheck());
+        
+        if (!isHealthy) {
+            healthInfo.put("lastError", connectionHealthService.getLastError());
+            healthInfo.put("lastFailureTime", connectionHealthService.getLastFailureTime());
+        }
+        
+        return ResponseEntity.ok(healthInfo);
+    }
+    
+    @PostMapping("/reconnect")
+    public ResponseEntity<Map<String, Object>> triggerReconnect() {
+        Map<String, Object> result = new java.util.HashMap<>();
+        
+        if (connectionHealthService == null) {
+            result.put("success", false);
+            result.put("message", "MCP health monitoring not available (MCP profile not active)");
+            return ResponseEntity.ok(result);
+        }
+        
+        log.info("Manual MCP reconnection triggered via API");
+        connectionHealthService.triggerReconnectionAttempt();
+        
+        boolean isHealthy = connectionHealthService.isConnectionHealthy();
+        result.put("success", isHealthy);
+        result.put("status", isHealthy ? "healthy" : "unhealthy");
+        result.put("toolCount", connectionHealthService.getAvailableToolCount());
+        
+        return ResponseEntity.ok(result);
     }
 }

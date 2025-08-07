@@ -38,7 +38,19 @@ public class StatusController {
             boolean openaiHealthy = chatService.isHealthy();
             int activeSessions = chatService.getActiveSessionCount();
             boolean toolsEnabled = toolCallbackProvider != null;
-            int availableTools = toolsEnabled ? toolCallbackProvider.getToolCallbacks().length : 0;
+            int availableTools = 0;
+            
+            // Get tool count with timeout protection
+            if (toolsEnabled) {
+                try {
+                    // Use a quick timeout to avoid blocking the status endpoint
+                    availableTools = getToolCountWithTimeout();
+                } catch (Exception e) {
+                    log.warn("Failed to get MCP tool count: {}", e.getMessage());
+                    // Continue with availableTools = 0
+                }
+            }
+            
             List<String> activeProfiles = Arrays.asList(environment.getActiveProfiles());
             
             StatusResponse status = new StatusResponse(
@@ -55,9 +67,19 @@ public class StatusController {
             return ResponseEntity.ok(status);
             
         } catch (Exception e) {
-            log.error("Error getting status: {}", e.getMessage(), e);
+            log.error("Error getting status: {}", e.getMessage());
             StatusResponse errorStatus = new StatusResponse(false, 0, 0, List.of(), false);
             return ResponseEntity.ok(errorStatus);
+        }
+    }
+    
+    private int getToolCountWithTimeout() {
+        try {
+            var callbacks = toolCallbackProvider.getToolCallbacks();
+            return callbacks != null ? callbacks.length : 0;
+        } catch (Exception e) {
+            log.debug("MCP tools temporarily unavailable: {}", e.getMessage());
+            return 0;
         }
     }
 }

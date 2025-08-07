@@ -170,4 +170,21 @@ public class ApiClient {
         }
         return false;
     }
+    
+    public <T> T get(String endpoint, Class<T> responseType) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + endpoint))
+                .header("Accept", "application/json")
+                .GET()
+                .timeout(Duration.ofSeconds(10))
+                .build();
+        
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        
+        if (response.statusCode() == 200) {
+            return objectMapper.readValue(response.body(), responseType);
+        } else {
+            throw new RuntimeException("Failed to get from " + endpoint + ": HTTP " + response.statusCode());
+        }
+    }
 }

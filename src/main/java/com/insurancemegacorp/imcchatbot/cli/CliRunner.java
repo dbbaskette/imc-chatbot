@@ -301,6 +301,39 @@ public class CliRunner implements CommandLineRunner {
                                      String.join(", ", status.activeProfiles()));
                 }
             }
+            
+            // MCP Connection Health Status
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> healthInfo = (Map<String, Object>) apiClient.get("/api/tools/health", Map.class);
+                System.out.println("\n🔗 MCP Connection Health:");
+                String healthStatus = (String) healthInfo.get("status");
+                switch (healthStatus) {
+                    case "healthy" -> System.out.println("✅ Connections are healthy");
+                    case "unhealthy" -> {
+                        System.out.println("⚠️  Connection issues detected");
+                        String lastError = (String) healthInfo.get("lastError");
+                        if (lastError != null) {
+                            System.out.println("   Last error: " + lastError);
+                        }
+                    }
+                    case "unavailable" -> System.out.println("ℹ️  Health monitoring unavailable (MCP profile inactive)");
+                    default -> System.out.println("❓ Unknown health status: " + healthStatus);
+                }
+                
+                Object toolCount = healthInfo.get("toolCount");
+                if (toolCount instanceof Number) {
+                    System.out.println("🔧 Available tools: " + toolCount);
+                }
+                
+                Object lastCheck = healthInfo.get("lastSuccessfulCheck");
+                if (lastCheck != null) {
+                    System.out.println("🕐 Last health check: " + lastCheck);
+                }
+            } catch (Exception e) {
+                System.out.println("⚠️  Could not retrieve MCP health info: " + e.getMessage());
+            }
+            
             System.out.println();
         } catch (Exception e) {
             System.err.println("❌ Error getting status: " + e.getMessage());

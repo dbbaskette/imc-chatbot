@@ -136,6 +136,9 @@ public class ChatService {
                 response = "I apologize, but I'm unable to generate a response at this time. Please try again.";
             }
             
+            // Filter out thinking process for models that expose it (like Qwen)
+            response = filterThinkingProcess(response);
+            
             // Add assistant response to history
             AssistantMessage assistantMsg = new AssistantMessage(response);
             history.add(assistantMsg);
@@ -202,6 +205,34 @@ public class ChatService {
             }
             log.debug("Trimmed conversation history, removed {} old messages", messagesToRemove);
         }
+    }
+    
+    /**
+     * Filter out thinking process from AI responses (e.g., <think>...</think> tags)
+     * This is useful for models like Qwen that expose their reasoning process
+     */
+    private String filterThinkingProcess(String response) {
+        if (response == null) {
+            return response;
+        }
+        
+        // Remove <think>...</think> blocks (case insensitive, multiline with DOTALL flag)
+        String filtered = response.replaceAll("(?i)(?s)<think[^>]*>.*?</think>", "");
+        
+        // Remove any remaining thinking patterns that might not be properly closed
+        filtered = filtered.replaceAll("(?i)(?s)<think[^>]*>.*", "");
+        
+        // Clean up extra whitespace and newlines that might be left behind
+        filtered = filtered.replaceAll("\\n\\s*\\n\\s*\\n", "\n\n"); // Replace multiple newlines with double newline
+        filtered = filtered.trim();
+        
+        // If filtering removed everything, return a default message
+        if (filtered.isEmpty()) {
+            log.warn("Response filtering removed all content, returning default message");
+            return "I apologize, but I'm unable to provide a clear response at this time. Please try rephrasing your question.";
+        }
+        
+        return filtered;
     }
     
     /**

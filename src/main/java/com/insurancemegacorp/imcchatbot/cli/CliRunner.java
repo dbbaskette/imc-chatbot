@@ -75,6 +75,11 @@ public class CliRunner implements CommandLineRunner {
         System.out.println("  tool <name> <json-params>        - Execute a tool with JSON parameters");
         System.out.println("  status                           - Show the status of all connected servers");
         
+        System.out.println("\n💓 Connection Management Commands:");
+        System.out.println("  heartbeat                        - Show heartbeat status and statistics");
+        System.out.println("  send-heartbeat                   - Send immediate heartbeat to MCP servers");
+        System.out.println("  reset-heartbeat                  - Reset heartbeat statistics");
+        
         System.out.println("\n📋 General Commands:");
         System.out.println("  help                             - Show this help message");
         System.out.println("  exit                             - Exit the application");
@@ -125,6 +130,9 @@ public class CliRunner implements CommandLineRunner {
             case "describe-tool" -> handleDescribeTool(args);
             case "tool" -> handleToolInvocation(args);
             case "status" -> handleStatus();
+            case "heartbeat" -> handleHeartbeat();
+            case "send-heartbeat" -> handleSendHeartbeat();
+            case "reset-heartbeat" -> handleResetHeartbeat();
             case "help" -> printWelcome();
             case "exit", "quit" -> handleExit();
             default -> System.out.println("Unknown command. Type 'help' for available commands.");
@@ -420,6 +428,78 @@ public class CliRunner implements CommandLineRunner {
         }
     }
 
+    private void handleHeartbeat() {
+        try {
+            Map<String, Object> heartbeatInfo = apiClient.get("/api/tools/heartbeat", Map.class);
+            
+            System.out.println("\n💓 === MCP Connection Heartbeat Status ===");
+            System.out.println("Status: " + capitalizeFirst(heartbeatInfo.get("status").toString()));
+            System.out.println("Total Heartbeats: " + heartbeatInfo.get("totalHeartbeats"));
+            System.out.println("Failed Heartbeats: " + heartbeatInfo.get("failedHeartbeats"));
+            System.out.println("Success Rate: " + heartbeatInfo.get("successRate"));
+            
+            if (heartbeatInfo.get("lastSuccessfulHeartbeat") != null) {
+                System.out.println("Last Successful: " + heartbeatInfo.get("lastSuccessfulHeartbeat"));
+            }
+            
+            if (heartbeatInfo.get("lastFailedHeartbeat") != null) {
+                System.out.println("Last Failed: " + heartbeatInfo.get("lastFailedHeartbeat"));
+                System.out.println("Last Error: " + heartbeatInfo.get("lastError"));
+            }
+            
+            System.out.println();
+            
+        } catch (Exception e) {
+            System.err.println("❌ Error getting heartbeat status: " + e.getMessage());
+            logger.error("Heartbeat status error", e);
+        }
+    }
+    
+    private void handleSendHeartbeat() {
+        try {
+            Map<String, Object> result = apiClient.post("/api/tools/heartbeat", Map.class);
+            
+            System.out.println("\n💓 === Sending Immediate Heartbeat ===");
+            boolean success = (Boolean) result.get("success");
+            System.out.println("Success: " + (success ? "✅ Yes" : "❌ No"));
+            System.out.println("Message: " + result.get("message"));
+            
+            if (success) {
+                System.out.println("Total Heartbeats: " + result.get("totalHeartbeats"));
+                System.out.println("Success Rate: " + result.get("successRate"));
+            }
+            
+            System.out.println();
+            
+        } catch (Exception e) {
+            System.err.println("❌ Error sending heartbeat: " + e.getMessage());
+            logger.error("Send heartbeat error", e);
+        }
+    }
+    
+    private void handleResetHeartbeat() {
+        try {
+            Map<String, Object> result = apiClient.post("/api/tools/heartbeat/reset", Map.class);
+            
+            System.out.println("\n🔄 === Resetting Heartbeat Statistics ===");
+            boolean success = (Boolean) result.get("success");
+            System.out.println("Success: " + (success ? "✅ Yes" : "❌ No"));
+            System.out.println("Message: " + result.get("message"));
+            System.out.println();
+            
+        } catch (Exception e) {
+            System.err.println("❌ Error resetting heartbeat: " + e.getMessage());
+            logger.error("Reset heartbeat error", e);
+        }
+    }
+    
+    private String capitalizeFirst(String str) {
+        if (str == null || str.isEmpty()) {
+            return str;
+        }
+        return str.substring(0, 1).toUpperCase() + str.substring(1).toLowerCase();
+    }
+    
     private void handleExit() {
         System.out.println("Shutting down IMC Chatbot... Goodbye!");
         System.exit(0);

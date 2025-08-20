@@ -1,172 +1,51 @@
 ---
-# 🚀 Cloud Foundry Deployment Manifest for IMC Chatbot
-# Insurance MegaCorp's AI-Powered Customer Assistant
-
 applications:
 - name: imc-chatbot
-  # 📦 Application Configuration
-  path: target/imc-chatbot-2.0.0.jar
+  path: ./target/imc-chatbot-3.0.2.jar
   buildpacks:
-    - java_buildpack
+    - java_buildpack_offline
   
-  # 🔧 Runtime Configuration
+  # Runtime Configuration
   memory: 1G
   disk_quota: 2G
-  instances: 2
+  instances: 1
   timeout: 180
   
-  # 🌐 Network Configuration
-  routes:
-    - route: imc-chatbot.apps.your-domain.com
-    - route: imc-chatbot-staging.apps.your-domain.com
-  
-  # ⚙️ Environment Configuration
+  # Environment Configuration
   env:
-    # 🌱 Spring Configuration
-    SPRING_PROFILES_ACTIVE: cloud
+    SPRING_PROFILES_ACTIVE: cloud,mcp
+    JBP_CONFIG_OPEN_JDK_JRE: '{ jre: { version: 21.+ } }'
     JAVA_OPTS: >-
       -XX:MaxRAMPercentage=75.0
       -XX:+UseG1GC
       -XX:+UseContainerSupport
       -Djava.security.egd=file:/dev/./urandom
     
-    # 🤖 AI Model Configuration
-    SPRING_AI_OPENAI_CHAT_OPTIONS_MODEL: gpt-4o-mini
-    SPRING_AI_OPENAI_CHAT_OPTIONS_TEMPERATURE: 0.7
-    SPRING_AI_OPENAI_CHAT_OPTIONS_MAX_TOKENS: 2000
-    
-    # 🏢 Application Settings
+    # Application Settings
     SPRING_APPLICATION_NAME: imc-chatbot
-    SPRING_MAIN_WEB_APPLICATION_TYPE: none
     
-    # 🔗 MCP Client Configuration
+    # AI Model Configuration
+    # SPRING_AI_OPENAI_CHAT_OPTIONS_MODEL: gpt-4o-mini
+    # SPRING_AI_OPENAI_CHAT_OPTIONS_TEMPERATURE: 0.7
+    # SPRING_AI_OPENAI_CHAT_OPTIONS_MAX_TOKENS: 2000
+    
+    # MCP Client Configuration
     SPRING_AI_MCP_CLIENT_TOOLCALLBACK_ENABLED: true
     SPRING_AI_MCP_CLIENT_TYPE: SYNC
     SPRING_AI_MCP_CLIENT_CONNECTION_RESILIENT: true
     SPRING_AI_MCP_CLIENT_SSE_LENIENT_PARSING: true
     
-    # 📊 Logging Configuration
+    # Logging Configuration
     LOGGING_LEVEL_COM_INSURANCEMEGACORP_IMCCHATBOT: INFO
-    LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_AI: INFO
+    LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_AI: WARN
     LOGGING_LEVEL_IO_MODELCONTEXTPROTOCOL_CLIENT: INFO
-    LOGGING_LEVEL_IO_MODELCONTEXTPROTOCOL_SPEC: INFO
-    LOGGING_LEVEL_REACTOR_CORE_PUBLISHER_OPERATORS: WARN
     
-    # 🔒 Security Configuration
-    SPRING_CLOUD_VAULT_ENABLED: false
-    MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: when-authorized
-    
-    # 📈 Monitoring & Observability
-    MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,metrics,prometheus
-    MANAGEMENT_ENDPOINT_METRICS_ENABLED: true
-    MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: true
-    
-    # 🎯 Insurance-Specific Settings
-    IMC_CHATBOT_VERSION: 2.0.0
+    # Insurance-Specific Settings
+    IMC_CHATBOT_VERSION: 3.0.0
     IMC_CHATBOT_ENVIRONMENT: production
     IMC_CHATBOT_COMPANY: Insurance MegaCorp
   
-  # 🔗 Service Bindings
+  # Service Bindings
   services:
-    # 🤖 AI Services
-    - openai-service
-    - anthropic-service
-    
-    # 🏢 Insurance Backend Services
-    - policy-database
-    - claims-database
-    - customer-database
-    
-    # 🔐 Security Services
-    - vault-service
-    - oauth-service
-    
-    # 📊 Monitoring Services
-    - newrelic-service
-    - splunk-service
-    
-    # 📈 Application Performance Monitoring
-    - apm-service
-
-# 🔄 Alternative Configurations for Different Environments
-
-# 🧪 Development/Staging Application
-- name: imc-chatbot-dev
-  path: target/imc-chatbot-2.0.0.jar
-  buildpacks:
-    - java_buildpack
-  
-  # 🔧 Reduced Resources for Development
-  memory: 512M
-  disk_quota: 1G
-  instances: 1
-  
-  # 🌐 Development Routes
-  routes:
-    - route: imc-chatbot-dev.apps.your-domain.com
-  
-  # ⚙️ Development Environment
-  env:
-    SPRING_PROFILES_ACTIVE: cloud,development
-    JAVA_OPTS: >-
-      -XX:MaxRAMPercentage=75.0
-      -XX:+UseG1GC
-      -Djava.security.egd=file:/dev/./urandom
-    
-    # 🐛 Debug Configuration
-    LOGGING_LEVEL_COM_INSURANCEMEGACORP_IMCCHATBOT: DEBUG
-    LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_AI: DEBUG
-    SPRING_AI_OPENAI_CHAT_OPTIONS_MODEL: gpt-4o-mini
-    
-    # 🧪 Development Settings
-    IMC_CHATBOT_ENVIRONMENT: development
-    MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: always
-    
-  # 🔗 Development Services
-  services:
-    - openai-service-dev
-    - policy-database-dev
-    - vault-service-dev
-
-# 🏋️ Load Testing Application
-- name: imc-chatbot-load-test
-  path: target/imc-chatbot-2.0.0.jar
-  buildpacks:
-    - java_buildpack
-  
-  # 💪 High Performance Configuration
-  memory: 2G
-  disk_quota: 4G
-  instances: 5
-  
-  # 🌐 Load Test Routes
-  routes:
-    - route: imc-chatbot-loadtest.apps.your-domain.com
-  
-  # ⚙️ Performance Optimized Environment
-  env:
-    SPRING_PROFILES_ACTIVE: cloud,performance
-    JAVA_OPTS: >-
-      -XX:MaxRAMPercentage=80.0
-      -XX:+UseG1GC
-      -XX:+UseContainerSupport
-      -XX:+AlwaysPreTouch
-      -XX:+UseStringDeduplication
-      -Djava.security.egd=file:/dev/./urandom
-    
-    # 🚀 Performance Settings
-    SPRING_AI_OPENAI_CHAT_OPTIONS_MODEL: gpt-4o-mini
-    SPRING_AI_MCP_CLIENT_CONNECTION_RESILIENT: true
-    IMC_CHATBOT_ENVIRONMENT: load-test
-    
-    # 📊 Enhanced Monitoring
-    MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "*"
-    
-  # 🔗 Performance Services
-  services:
-    - openai-service
-    - policy-database
-    - claims-database
-    - customer-database
-    - apm-service
-    - newrelic-service
+    # AI Services
+    - chat-model

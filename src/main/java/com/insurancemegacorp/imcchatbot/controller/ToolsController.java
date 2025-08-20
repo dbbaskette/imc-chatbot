@@ -2,6 +2,7 @@ package com.insurancemegacorp.imcchatbot.controller;
 
 import com.insurancemegacorp.imcchatbot.dto.ToolInfo;
 import com.insurancemegacorp.imcchatbot.service.McpConnectionHealthService;
+import com.insurancemegacorp.imcchatbot.service.McpConnectionHeartbeatService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,12 +26,15 @@ public class ToolsController {
     
     private final SyncMcpToolCallbackProvider toolCallbackProvider;
     private final McpConnectionHealthService connectionHealthService;
+    private final McpConnectionHeartbeatService heartbeatService;
     private final ObjectMapper objectMapper;
     
     public ToolsController(@Autowired(required = false) SyncMcpToolCallbackProvider toolCallbackProvider,
-                          @Autowired(required = false) McpConnectionHealthService connectionHealthService) {
+                          @Autowired(required = false) McpConnectionHealthService connectionHealthService,
+                          @Autowired(required = false) McpConnectionHeartbeatService heartbeatService) {
         this.toolCallbackProvider = toolCallbackProvider;
         this.connectionHealthService = connectionHealthService;
+        this.heartbeatService = heartbeatService;
         this.objectMapper = new ObjectMapper();
     }
     
@@ -173,6 +177,17 @@ public class ToolsController {
             healthInfo.put("lastFailureTime", connectionHealthService.getLastFailureTime());
         }
         
+        // Add heartbeat information if available
+        if (heartbeatService != null) {
+            var heartbeatStats = heartbeatService.getHeartbeatStats();
+            healthInfo.put("heartbeat", Map.of(
+                "status", heartbeatStats.getHealthStatus().toString().toLowerCase(),
+                "totalHeartbeats", heartbeatStats.getTotalHeartbeats(),
+                "successRate", String.format("%.1f%%", heartbeatStats.getSuccessRate()),
+                "lastSuccessfulHeartbeat", heartbeatStats.getLastSuccessfulHeartbeat()
+            ));
+        }
+        
         return ResponseEntity.ok(healthInfo);
     }
     
@@ -193,6 +208,76 @@ public class ToolsController {
         result.put("success", isHealthy);
         result.put("status", isHealthy ? "healthy" : "unhealthy");
         result.put("toolCount", connectionHealthService.getAvailableToolCount());
+        
+        return ResponseEntity.ok(result);
+    }
+    
+    @GetMapping("/heartbeat")
+    public ResponseEntity<Map<String, Object>> getHeartbeatStatus() {
+        Map<String, Object> heartbeatInfo = new java.util.HashMap<>();
+        
+        if (heartbeatService == null) {
+            heartbeatInfo.put("status", "unavailable");
+            heartbeatInfo.put("message", "MCP heartbeat service not available (MCP profile not active)");
+            return ResponseEntity.ok(heartbeatInfo);
+        }
+        
+        var stats = heartbeatService.getHeartbeatStats();
+        
+        heartbeatInfo.put("status", stats.getHealthStatus().toString().toLowerCase());
+        heartbeatInfo.put("totalHeartbeats", stats.getTotalHeartbeats());
+        heartbeatInfo.put("failedHeartbeats", stats.getFailedHeartbeats());
+        heartbeatInfo.put("successRate", String.format("%.1f%%", stats.getSuccessRate()));
+        heartbeatInfo.put("lastSuccessfulHeartbeat", stats.getLastSuccessfulHeartbeat());
+        
+        if (stats.getLastFailedHeartbeat() != null) {
+            heartbeatInfo.put("lastFailedHeartbeat", stats.getLastFailedHeartbeat());
+            heartbeatInfo.put("lastError", stats.getLastError());
+        }
+        
+        return ResponseEntity.ok(heartbeatInfo);
+    }
+    
+    @PostMapping("/heartbeat")
+    public ResponseEntity<Map<String, Object>> sendImmediateHeartbeat() {
+        Map<String, Object> result = new java.util.HashMap<>();
+        
+        if (heartbeatService == null) {
+            result.put("success", false);
+            result.put("message", "MCP heartbeat service not available (MCP profile not active)");
+            return ResponseEntity.ok(result);
+        }
+        
+        log.info("Manual MCP heartbeat triggered via API");
+        boolean success = heartbeatService.sendImmediateHeartbeat();
+        
+        result.put("success", success);
+        result.put("message", success ? "Heartbeat sent successfully" : "Heartbeat failed");
+        
+        if (success) {
+            var stats = heartbeatService.getHeartbeatStats();
+            result.put("totalHeartbeats", stats.getTotalHeartbeats());
+            result.put("successRate", String.format("%.1f%%", stats.getSuccessRate()));
+        }
+        
+        return ResponseEntity.ok(result);
+    }
+    
+    @PostMapping("/heartbeat/reset")
+    public ResponseEntity<Map<String, Object>> resetHeartbeatStats() {
+        Map<String, Object> result = new java.util.HashMap<>();
+        
+        if (heartbeatService == null) {
+            result.put("success", false);
+            result.put("message", "MCP heartbeat service not available (MCP profile not active)");
+            return ResponseEntity.ok(result);
+        }
+        
+        log.info("Heartbeat statistics reset triggered via API");
+        heartbeatService.resetHeartbeatStats();
+        
+        result.put("success", true);
+        result.put("message", "Heartbeat statistics reset successfully");
         
         return ResponseEntity.ok(result);
     }

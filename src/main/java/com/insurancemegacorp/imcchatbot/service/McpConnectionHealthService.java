@@ -133,4 +133,34 @@ public class McpConnectionHealthService {
         log.info("🔄 Manually triggering MCP reconnection attempt...");
         performHealthCheck();
     }
+    
+    /**
+     * Marks that a heartbeat was received successfully.
+     * This helps maintain connection health status between scheduled health checks.
+     */
+    public void markHeartbeatReceived() {
+        // Update last successful check time to reflect recent activity
+        lastSuccessfulCheck.set(LocalDateTime.now());
+        
+        // If we were unhealthy and now have heartbeat activity, mark as healthy
+        if (!isHealthy.get()) {
+            log.info("💓 Heartbeat received - marking MCP connection as healthy");
+            markHealthy();
+        }
+    }
+    
+    /**
+     * Marks that a heartbeat failed.
+     * This provides early warning of connection issues between scheduled health checks.
+     */
+    public void markHeartbeatFailed(String errorMessage) {
+        // Don't immediately mark as unhealthy, but update error information
+        lastError.set("Heartbeat failed: " + errorMessage);
+        lastFailureTime.set(LocalDateTime.now());
+        
+        log.debug("💓 Heartbeat failed: {}", errorMessage);
+        
+        // If we've had multiple recent heartbeat failures, consider connection unhealthy
+        // This is a more conservative approach than immediate failure marking
+    }
 }

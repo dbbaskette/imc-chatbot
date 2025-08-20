@@ -187,4 +187,22 @@ public class ApiClient {
             throw new RuntimeException("Failed to get from " + endpoint + ": HTTP " + response.statusCode());
         }
     }
+    
+    public <T> T post(String endpoint, Class<T> responseType) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + endpoint))
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{}"))
+                .timeout(Duration.ofSeconds(10))
+                .build();
+        
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        
+        if (response.statusCode() == 200) {
+            return objectMapper.readValue(response.body(), responseType);
+        } else {
+            throw new RuntimeException("Failed to post to " + endpoint + ": HTTP " + response.statusCode());
+        }
+    }
 }

@@ -3,6 +3,7 @@ package com.insurancemegacorp.imcchatbot.controller;
 import com.insurancemegacorp.imcchatbot.dto.ToolInfo;
 import com.insurancemegacorp.imcchatbot.service.McpConnectionHealthService;
 import com.insurancemegacorp.imcchatbot.service.McpConnectionHeartbeatService;
+import com.insurancemegacorp.imcchatbot.service.McpConnectionStateManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,14 +28,17 @@ public class ToolsController {
     private final SyncMcpToolCallbackProvider toolCallbackProvider;
     private final McpConnectionHealthService connectionHealthService;
     private final McpConnectionHeartbeatService heartbeatService;
+    private final McpConnectionStateManager connectionStateManager;
     private final ObjectMapper objectMapper;
     
     public ToolsController(@Autowired(required = false) SyncMcpToolCallbackProvider toolCallbackProvider,
                           @Autowired(required = false) McpConnectionHealthService connectionHealthService,
-                          @Autowired(required = false) McpConnectionHeartbeatService heartbeatService) {
+                          @Autowired(required = false) McpConnectionHeartbeatService heartbeatService,
+                          @Autowired(required = false) McpConnectionStateManager connectionStateManager) {
         this.toolCallbackProvider = toolCallbackProvider;
         this.connectionHealthService = connectionHealthService;
         this.heartbeatService = heartbeatService;
+        this.connectionStateManager = connectionStateManager;
         this.objectMapper = new ObjectMapper();
     }
     
@@ -184,7 +188,30 @@ public class ToolsController {
                 "status", heartbeatStats.getHealthStatus().toString().toLowerCase(),
                 "totalHeartbeats", heartbeatStats.getTotalHeartbeats(),
                 "successRate", String.format("%.1f%%", heartbeatStats.getSuccessRate()),
-                "lastSuccessfulHeartbeat", heartbeatStats.getLastSuccessfulHeartbeat()
+                "lastSuccessfulHeartbeat", heartbeatStats.getLastSuccessfulHeartbeat(),
+                "currentInterval", heartbeatStats.getCurrentInterval(),
+                "consecutiveFailures", heartbeatStats.getConsecutiveFailures()
+            ));
+        }
+        
+        // Add connection state information if available
+        if (connectionStateManager != null) {
+            var connectionStats = connectionStateManager.getConnectionStats();
+            healthInfo.put("connectionState", Map.of(
+                "state", connectionStats.getCurrentState().toString().toLowerCase(),
+                "connectionAttempts", connectionStats.getConnectionAttempts(),
+                "successRate", String.format("%.1f%%", connectionStats.getSuccessRate()),
+                "lastConnectionTime", connectionStats.getLastConnectionTime(),
+                "averageConnectionDuration", connectionStats.getAverageConnectionDuration().toMillis() + "ms"
+            ));
+        }
+        
+        // Add circuit breaker information if available
+        if (connectionHealthService != null) {
+            healthInfo.put("circuitBreaker", Map.of(
+                "open", connectionHealthService.isCircuitBreakerOpen(),
+                "failureCount", connectionHealthService.getFailureCount(),
+                "timeout", connectionHealthService.getCircuitBreakerTimeout().toString()
             ));
         }
         

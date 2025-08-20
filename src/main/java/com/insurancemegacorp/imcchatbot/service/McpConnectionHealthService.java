@@ -4,13 +4,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Service
@@ -19,13 +22,29 @@ public class McpConnectionHealthService {
 
     private static final Logger log = LoggerFactory.getLogger(McpConnectionHealthService.class);
     
+    // Circuit breaker configuration
+    @Value("${mcp.resilience.circuit-breaker.threshold:5}")
+    private int circuitBreakerThreshold;
+    
+    @Value("${mcp.resilience.circuit-breaker.timeout:2m}")
+    private Duration circuitBreakerTimeout;
+    
+    // Health tracking
     private final AtomicBoolean isHealthy = new AtomicBoolean(true);
     private final AtomicReference<LocalDateTime> lastSuccessfulCheck = new AtomicReference<>(LocalDateTime.now());
     private final AtomicReference<LocalDateTime> lastFailureTime = new AtomicReference<>();
     private final AtomicReference<String> lastError = new AtomicReference<>();
     
+    // Circuit breaker state
+    private final AtomicBoolean circuitOpen = new AtomicBoolean(false);
+    private final AtomicInteger failureCount = new AtomicInteger(0);
+    private final AtomicReference<LocalDateTime> lastFailureTimeForCircuit = new AtomicReference<>();
+    
     @Autowired(required = false)
     private SyncMcpToolCallbackProvider toolCallbackProvider;
+    
+    @Autowired(required = false)
+    private McpConnectionStateManager connectionStateManager;
 
     /**
      * Performs a health check every 60 seconds to ensure MCP connections are active
@@ -34,6 +53,12 @@ public class McpConnectionHealthService {
     public void performHealthCheck() {
         if (toolCallbackProvider == null) {
             log.debug("MCP tools not available - skipping health check");
+            return;
+        }
+
+        // Check circuit breaker first
+        if (isCircuitOpen()) {
+            log.debug("🚨 Circuit breaker open - skipping health check");
             return;
         }
 
@@ -46,14 +71,14 @@ public class McpConnectionHealthService {
                 if (!isHealthy.get()) {
                     log.info("✅ MCP connection recovered - {} tool(s) available", toolCallbacks.length);
                 }
-                markHealthy();
+                onHealthCheckSuccess();
             } else {
                 // No tools available - potential connection issue
-                handleConnectionIssue("No MCP tools available - connection may be lost");
+                onHealthCheckFailure("No MCP tools available - connection may be lost");
             }
             
         } catch (Exception e) {
-            handleConnectionIssue("MCP health check failed: " + e.getMessage());
+            onHealthCheckFailure("MCP health check failed: " + e.getMessage());
         }
     }
 
@@ -162,5 +187,83 @@ public class McpConnectionHealthService {
         
         // If we've had multiple recent heartbeat failures, consider connection unhealthy
         // This is a more conservative approach than immediate failure marking
+    }
+    
+    /**
+     * Circuit breaker implementation - prevents hammering a failing server
+     */
+    private boolean isCircuitOpen() {
+        if (!circuitOpen.get()) {
+            return false;
+        }
+        
+        // Check if timeout has passed
+        LocalDateTime lastFailure = lastFailureTimeForCircuit.get();
+        if (lastFailure != null && 
+            Duration.between(lastFailure, LocalDateTime.now()).compareTo(circuitBreakerTimeout) > 0) {
+            log.info("⏰ Circuit breaker timeout expired - attempting recovery");
+            circuitOpen.set(false);
+            failureCount.set(0);
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Called when a health check succeeds
+     */
+    private void onHealthCheckSuccess() {
+        failureCount.set(0);
+        circuitOpen.set(false);
+        markHealthy();
+        
+        // Update connection state if available
+        if (connectionStateManager != null) {
+            connectionStateManager.onConnectionSuccess();
+        }
+    }
+    
+    /**
+     * Called when a health check fails
+     */
+    private void onHealthCheckFailure(String reason) {
+        int failures = failureCount.incrementAndGet();
+        lastFailureTimeForCircuit.set(LocalDateTime.now());
+        
+        log.warn("⚠️ Health check failed (attempt {}): {}", failures, reason);
+        
+        if (failures >= circuitBreakerThreshold) {
+            circuitOpen.set(true);
+            log.error("🚨 Circuit breaker opened after {} failures: {}", failures, reason);
+        }
+        
+        handleConnectionIssue(reason);
+        
+        // Update connection state if available
+        if (connectionStateManager != null) {
+            connectionStateManager.onConnectionFailure(reason);
+        }
+    }
+    
+    /**
+     * Gets circuit breaker status
+     */
+    public boolean isCircuitBreakerOpen() {
+        return circuitOpen.get();
+    }
+    
+    /**
+     * Gets failure count for circuit breaker
+     */
+    public int getFailureCount() {
+        return failureCount.get();
+    }
+    
+    /**
+     * Gets circuit breaker timeout
+     */
+    public Duration getCircuitBreakerTimeout() {
+        return circuitBreakerTimeout;
     }
 }

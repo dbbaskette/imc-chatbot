@@ -184,26 +184,28 @@ public class ToolsController {
         // Add heartbeat information if available
         if (heartbeatService != null) {
             var heartbeatStats = heartbeatService.getHeartbeatStats();
-            healthInfo.put("heartbeat", Map.of(
-                "status", heartbeatStats.getHealthStatus().toString().toLowerCase(),
-                "totalHeartbeats", heartbeatStats.getTotalHeartbeats(),
-                "successRate", String.format("%.1f%%", heartbeatStats.getSuccessRate()),
-                "lastSuccessfulHeartbeat", heartbeatStats.getLastSuccessfulHeartbeat(),
-                "currentInterval", heartbeatStats.getCurrentInterval(),
-                "consecutiveFailures", heartbeatStats.getConsecutiveFailures()
-            ));
+            Map<String, Object> heartbeatData = new java.util.HashMap<>();
+            heartbeatData.put("status", heartbeatStats.getHealthStatus().toString().toLowerCase());
+            heartbeatData.put("totalHeartbeats", heartbeatStats.getTotalHeartbeats());
+            heartbeatData.put("successRate", String.format("%.1f%%", heartbeatStats.getSuccessRate()));
+            heartbeatData.put("lastSuccessfulHeartbeat", heartbeatStats.getLastSuccessfulHeartbeat());
+            heartbeatData.put("currentInterval", heartbeatStats.getCurrentInterval());
+            heartbeatData.put("consecutiveFailures", heartbeatStats.getConsecutiveFailures());
+            healthInfo.put("heartbeat", heartbeatData);
         }
         
         // Add connection state information if available
         if (connectionStateManager != null) {
             var connectionStats = connectionStateManager.getConnectionStats();
-            healthInfo.put("connectionState", Map.of(
-                "state", connectionStats.getCurrentState().toString().toLowerCase(),
-                "connectionAttempts", connectionStats.getConnectionAttempts(),
-                "successRate", String.format("%.1f%%", connectionStats.getSuccessRate()),
-                "lastConnectionTime", connectionStats.getLastConnectionTime(),
-                "averageConnectionDuration", connectionStats.getAverageConnectionDuration().toMillis() + "ms"
-            ));
+            Map<String, Object> connectionState = new java.util.HashMap<>();
+            connectionState.put("state", connectionStats.getCurrentState().toString().toLowerCase());
+            connectionState.put("connectionAttempts", connectionStats.getConnectionAttempts());
+            connectionState.put("successRate", String.format("%.1f%%", connectionStats.getSuccessRate()));
+            connectionState.put("lastConnectionTime", connectionStats.getLastConnectionTime());
+            connectionState.put("averageConnectionDuration", 
+                connectionStats.getAverageConnectionDuration() != null ? 
+                connectionStats.getAverageConnectionDuration().toMillis() + "ms" : "N/A");
+            healthInfo.put("connectionState", connectionState);
         }
         
         // Add circuit breaker information if available

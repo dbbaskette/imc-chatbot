@@ -2,6 +2,7 @@ package com.insurancemegacorp.imcchatbot.controller;
 
 import com.insurancemegacorp.imcchatbot.dto.ChatRequest;
 import com.insurancemegacorp.imcchatbot.dto.ChatResponse;
+import com.insurancemegacorp.imcchatbot.dto.StructuredResponse;
 import com.insurancemegacorp.imcchatbot.service.ChatService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,8 +36,8 @@ public class ChatController {
             
             log.debug("Processing chat request for session: {}", sessionId);
             
-            String response = chatService.chat(sessionId, request.message());
-            ChatResponse chatResponse = ChatResponse.of(response, sessionId);
+                           StructuredResponse response = chatService.chat(sessionId, request.message());
+               ChatResponse chatResponse = ChatResponse.of(response, sessionId);
             
             return ResponseEntity.ok(chatResponse);
             
@@ -57,8 +58,19 @@ public class ChatController {
         })
         .flux()
         .flatMap(response -> {
+            // Extract text content from structured response for streaming
+            String textContent;
+            if (response.type().equals("text")) {
+                textContent = (String) response.content();
+            } else if (response.type().equals("dataTable")) {
+                // For table data, stream a summary message
+                textContent = "Table data received. Check the main response for structured data.";
+            } else {
+                textContent = "Response received.";
+            }
+            
             // Split response into words for streaming effect
-            String[] words = response.split(" ");
+            String[] words = textContent.split(" ");
             return Flux.fromArray(words)
                     .delayElements(Duration.ofMillis(50))
                     .map(word -> "data: " + word + " \n\n");

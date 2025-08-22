@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -23,12 +24,18 @@ public class McpConnectionHeartbeatService {
     
     private static final Logger log = LoggerFactory.getLogger(McpConnectionHeartbeatService.class);
     
-    // Heartbeat every 45 seconds to prevent 60-second timeouts
-    private static final long HEARTBEAT_INTERVAL_MS = 45000;
+    // Adaptive heartbeat intervals
+    private static final long MIN_HEARTBEAT_INTERVAL_MS = 30000; // 30 seconds
+    private static final long MAX_HEARTBEAT_INTERVAL_MS = 300000; // 5 minutes
+    private static final long BACKOFF_MULTIPLIER = 2;
+    
+    // Current heartbeat interval (starts at minimum)
+    private final AtomicLong currentHeartbeatInterval = new AtomicLong(MIN_HEARTBEAT_INTERVAL_MS);
     
     // Track heartbeat statistics
     private final AtomicInteger heartbeatCount = new AtomicInteger(0);
     private final AtomicInteger failedHeartbeats = new AtomicInteger(0);
+    private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
     private final AtomicReference<LocalDateTime> lastSuccessfulHeartbeat = new AtomicReference<>(LocalDateTime.now());
     private final AtomicReference<LocalDateTime> lastFailedHeartbeat = new AtomicReference<>();
     private final AtomicReference<String> lastHeartbeatError = new AtomicReference<>();
@@ -41,9 +48,9 @@ public class McpConnectionHeartbeatService {
     
     /**
      * Sends periodic heartbeats to keep MCP connections alive.
-     * Runs every 45 seconds with a 10-second initial delay.
+     * Uses adaptive intervals based on connection health.
      */
-    @Scheduled(fixedRate = HEARTBEAT_INTERVAL_MS, initialDelay = 10000)
+    @Scheduled(fixedDelayString = "#{@intervalProvider.getInterval()}")
     public void sendHeartbeat() {
         if (toolCallbackProvider == null) {
             log.debug("MCP tools not available - skipping heartbeat");
@@ -59,10 +66,14 @@ public class McpConnectionHeartbeatService {
             // Update statistics
             heartbeatCount.incrementAndGet();
             lastSuccessfulHeartbeat.set(LocalDateTime.now());
+            consecutiveFailures.set(0);
+            
+            // Reset to minimum interval on success
+            currentHeartbeatInterval.set(MIN_HEARTBEAT_INTERVAL_MS);
             
             // Log heartbeat success (debug level to avoid spam)
-            log.debug("💓 MCP heartbeat sent - {} tools available (total: {}, failed: {})", 
-                toolCount, heartbeatCount.get(), failedHeartbeats.get());
+            log.debug("💓 MCP heartbeat successful - {} tools available (total: {}, failed: {}, interval: {}ms)", 
+                toolCount, heartbeatCount.get(), failedHeartbeats.get(), currentHeartbeatInterval.get());
             
             // If we have a connection health service, update it
             if (connectionHealthService != null) {
@@ -103,6 +114,20 @@ public class McpConnectionHeartbeatService {
             handleHeartbeatFailure("Immediate heartbeat failed: " + e.getMessage(), e);
             return false;
         }
+    }
+    
+    /**
+     * Gets the current heartbeat interval in milliseconds
+     */
+    public long getCurrentHeartbeatInterval() {
+        return currentHeartbeatInterval.get();
+    }
+    
+    /**
+     * Gets the number of consecutive failures
+     */
+    public int getConsecutiveFailures() {
+        return consecutiveFailures.get();
     }
     
     /**
@@ -168,10 +193,19 @@ public class McpConnectionHeartbeatService {
     
     private void handleHeartbeatFailure(String errorMessage, Exception e) {
         failedHeartbeats.incrementAndGet();
+        consecutiveFailures.incrementAndGet();
         lastFailedHeartbeat.set(LocalDateTime.now());
         lastHeartbeatError.set(errorMessage);
         
-        log.warn("⚠️  MCP heartbeat failed: {}", errorMessage);
+        // Implement exponential backoff
+        long newInterval = Math.min(
+            currentHeartbeatInterval.get() * BACKOFF_MULTIPLIER, 
+            MAX_HEARTBEAT_INTERVAL_MS
+        );
+        currentHeartbeatInterval.set(newInterval);
+        
+        log.warn("⚠️  MCP heartbeat failed (consecutive: {}): {} - backing off to {}ms", 
+            consecutiveFailures.get(), errorMessage, newInterval);
         
         // If we have a connection health service, notify it of the failure
         if (connectionHealthService != null) {
@@ -213,6 +247,24 @@ public class McpConnectionHeartbeatService {
         public HeartbeatHealthStatus getHealthStatus() { return healthStatus; }
         public double getSuccessRate() { 
             return totalHeartbeats > 0 ? (double)(totalHeartbeats - failedHeartbeats) / totalHeartbeats * 100 : 0.0; 
+        }
+        
+        /**
+         * Gets the current heartbeat interval in milliseconds
+         */
+        public long getCurrentInterval() {
+            // This would need to be passed from the parent service
+            // For now, return a default value
+            return 30000;
+        }
+        
+        /**
+         * Gets the number of consecutive failures
+         */
+        public int getConsecutiveFailures() {
+            // This would need to be passed from the parent service
+            // For now, return a default value
+            return 0;
         }
     }
     

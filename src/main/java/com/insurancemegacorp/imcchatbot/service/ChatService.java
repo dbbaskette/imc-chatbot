@@ -13,6 +13,7 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 
 import org.springframework.ai.chat.prompt.Prompt;
+import com.insurancemegacorp.imcchatbot.dto.StructuredResponse;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Service;
@@ -33,16 +34,19 @@ public class ChatService {
     private final SystemMessage systemMessage;
     private final SyncMcpToolCallbackProvider toolCallbackProvider;
     private final McpConnectionHealthService connectionHealthService;
+    private final ResponseParserService responseParserService;
     
     public ChatService(ChatModel chatModel, 
                       @Value("${imc.chatbot.system-prompt}") String systemPrompt,
                       @Autowired(required = false) SyncMcpToolCallbackProvider toolCallbackProvider,
-                      @Autowired(required = false) McpConnectionHealthService connectionHealthService) {
+                      @Autowired(required = false) McpConnectionHealthService connectionHealthService,
+                      ResponseParserService responseParserService) {
         this.chatModel = chatModel;
         this.conversationHistory = new ConcurrentHashMap<>();
         this.systemMessage = new SystemMessage(systemPrompt);
         this.toolCallbackProvider = toolCallbackProvider;
         this.connectionHealthService = connectionHealthService;
+        this.responseParserService = responseParserService;
         
         log.info("✅ ChatService initialized with OpenAI ChatModel");
         log.debug("System prompt loaded: {}", systemPrompt.length() > 100 ? 
@@ -59,7 +63,7 @@ public class ChatService {
     /**
      * Send a message to the AI and get a response, maintaining conversation context
      */
-    public String chat(String sessionId, String userMessage) {
+    public StructuredResponse chat(String sessionId, String userMessage) {
         if (userMessage == null || userMessage.trim().isEmpty()) {
             throw new IllegalArgumentException("User message cannot be empty");
         }
@@ -139,21 +143,24 @@ public class ChatService {
             // Filter out thinking process for models that expose it (like Qwen)
             response = filterThinkingProcess(response);
             
-            // Add assistant response to history
+            // Parse the response to detect structured data
+            StructuredResponse structuredResponse = responseParserService.parseResponse(response);
+            
+            // Add assistant response to history (use original text for conversation context)
             AssistantMessage assistantMsg = new AssistantMessage(response);
             history.add(assistantMsg);
             
             // Manage conversation history size
             manageConversationHistory(history);
             
-            log.debug("Chat response generated for session: {} in {}ms, response length: {}", 
-                     sessionId, responseTime, response.length());
+            log.debug("Chat response generated for session: {} in {}ms, response length: {}, structured type: {}", 
+                     sessionId, responseTime, response.length(), structuredResponse.type());
             
-            return response;
+            return structuredResponse;
             
         } catch (Exception e) {
             log.error("Chat error for session {}: {}", sessionId, e.getMessage(), e);
-            return handleChatError(e);
+            return StructuredResponse.text(handleChatError(e));
         }
     }
     

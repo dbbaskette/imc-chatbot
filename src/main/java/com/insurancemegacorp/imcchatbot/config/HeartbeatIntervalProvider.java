@@ -21,8 +21,8 @@ public class HeartbeatIntervalProvider {
      * Provides the current heartbeat interval in milliseconds.
      * This is used by the @Scheduled annotation to dynamically adjust timing.
      */
-    @Bean
-    public IntervalProvider heartbeatIntervalProvider() {
+    @Bean(name = "intervalProvider")
+    public IntervalProvider createIntervalProvider() {
         return new IntervalProvider() {
             @Override
             public long getInterval() {

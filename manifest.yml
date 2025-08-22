@@ -1,7 +1,7 @@
 ---
 applications:
 - name: imc-chatbot
-  path: ./target/imc-chatbot-4.0.4.jar
+  path: ./target/imc-chatbot-4.0.5.jar
   buildpacks:
     - java_buildpack_offline
   

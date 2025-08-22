@@ -47,6 +47,12 @@ public class ResponseParserService {
             return StructuredResponse.text(llmResponse);
             
         } catch (JsonProcessingException e) {
+            // Not JSON, check if it's a markdown table that we can convert
+            if (isMarkdownTable(llmResponse)) {
+                log.debug("Detected markdown table, attempting to convert to structured format");
+                return convertMarkdownTableToStructured(llmResponse);
+            }
+            
             // Not JSON, treat as regular text
             log.debug("LLM response is not JSON, treating as text: {}", e.getMessage());
             return StructuredResponse.text(llmResponse);
@@ -88,5 +94,106 @@ public class ResponseParserService {
             log.error("Error parsing dataTable response: {}", e.getMessage(), e);
             return StructuredResponse.text("Error: Could not parse table data");
         }
+    }
+    
+    /**
+     * Check if the response contains a markdown table
+     */
+    private boolean isMarkdownTable(String response) {
+        // Look for markdown table pattern with | symbols
+        String[] lines = response.split("\n");
+        int tableLines = 0;
+        
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.contains("|")) {
+                tableLines++;
+                if (tableLines >= 2) { // Need at least header + separator or header + data
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * Convert markdown table to structured JSON format
+     */
+    private StructuredResponse convertMarkdownTableToStructured(String response) {
+        try {
+            String[] lines = response.split("\n");
+            List<String> tableLines = new ArrayList<>();
+            
+            // Extract table lines
+            for (String line : lines) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+                    tableLines.add(trimmed);
+                }
+            }
+            
+            if (tableLines.size() < 2) {
+                log.warn("Insufficient table lines found");
+                return StructuredResponse.text(response);
+            }
+            
+            // Parse header (first line)
+            String headerLine = tableLines.get(0);
+            List<String> columns = parseMarkdownTableRow(headerLine);
+            
+            // Skip separator line (usually line 1) and parse data rows
+            List<Map<String, Object>> data = new ArrayList<>();
+            for (int i = 1; i < tableLines.size(); i++) {
+                String line = tableLines.get(i);
+                // Skip separator lines (contain only |, -, :, and spaces)
+                if (line.matches("^\\|[\\s\\-:]+\\|$")) {
+                    continue;
+                }
+                
+                List<String> rowValues = parseMarkdownTableRow(line);
+                if (rowValues.size() == columns.size()) {
+                    Map<String, Object> row = new java.util.HashMap<>();
+                    for (int j = 0; j < columns.size(); j++) {
+                        row.put(columns.get(j), rowValues.get(j));
+                    }
+                    data.add(row);
+                }
+            }
+            
+            if (!data.isEmpty()) {
+                log.debug("Successfully converted markdown table with {} columns and {} rows", columns.size(), data.size());
+                return StructuredResponse.dataTable(data, columns);
+            }
+            
+        } catch (Exception e) {
+            log.error("Error converting markdown table: {}", e.getMessage(), e);
+        }
+        
+        // Fallback to text if conversion fails
+        return StructuredResponse.text(response);
+    }
+    
+    /**
+     * Parse a single markdown table row
+     */
+    private List<String> parseMarkdownTableRow(String line) {
+        List<String> values = new ArrayList<>();
+        
+        // Remove leading and trailing |
+        String content = line.trim();
+        if (content.startsWith("|")) {
+            content = content.substring(1);
+        }
+        if (content.endsWith("|")) {
+            content = content.substring(0, content.length() - 1);
+        }
+        
+        // Split by | and clean up
+        String[] parts = content.split("\\|");
+        for (String part : parts) {
+            values.add(part.trim());
+        }
+        
+        return values;
     }
 }

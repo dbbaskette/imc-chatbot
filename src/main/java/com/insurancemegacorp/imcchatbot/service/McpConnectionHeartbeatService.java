@@ -50,10 +50,18 @@ public class McpConnectionHeartbeatService {
      * Sends periodic heartbeats to keep MCP connections alive.
      * Uses adaptive intervals based on connection health.
      */
-    @Scheduled(fixedDelayString = "#{@intervalProvider.getInterval()}")
+    @Scheduled(fixedDelay = 30000) // 30 seconds base interval
     public void sendHeartbeat() {
         if (toolCallbackProvider == null) {
             log.debug("MCP tools not available - skipping heartbeat");
+            return;
+        }
+        
+        // Implement adaptive interval logic within the method
+        long timeSinceLastHeartbeat = System.currentTimeMillis() - lastSuccessfulHeartbeat.get().atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+        if (timeSinceLastHeartbeat < currentHeartbeatInterval.get()) {
+            log.debug("Skipping heartbeat - adaptive interval not reached yet ({}ms remaining)", 
+                currentHeartbeatInterval.get() - timeSinceLastHeartbeat);
             return;
         }
         

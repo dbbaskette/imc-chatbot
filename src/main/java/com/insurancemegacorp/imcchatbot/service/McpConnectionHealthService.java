@@ -45,6 +45,9 @@ public class McpConnectionHealthService {
     
     @Autowired(required = false)
     private McpConnectionStateManager connectionStateManager;
+    
+    @Autowired(required = false)
+    private McpConnectionRefreshService connectionRefreshService;
 
     /**
      * Performs a health check every 60 seconds to ensure MCP connections are active
@@ -152,10 +155,24 @@ public class McpConnectionHealthService {
     }
 
     /**
-     * Manual method to trigger connection recovery attempts
+     * Manual method to trigger connection recovery attempts.
+     * Now uses the enhanced connection refresh service for forced reconnection.
      */
     public void triggerReconnectionAttempt() {
         log.info("🔄 Manually triggering MCP reconnection attempt...");
+        
+        // Use the new connection refresh service for forced reconnection
+        if (connectionRefreshService != null) {
+            boolean refreshSuccess = connectionRefreshService.forceConnectionRefresh();
+            if (refreshSuccess) {
+                log.info("✅ Connection refresh successful via refresh service");
+                return;
+            } else {
+                log.warn("⚠️ Connection refresh failed, falling back to health check");
+            }
+        }
+        
+        // Fallback to regular health check
         performHealthCheck();
     }
     

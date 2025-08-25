@@ -22,6 +22,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class ChatService {
@@ -35,18 +37,21 @@ public class ChatService {
     private final SyncMcpToolCallbackProvider toolCallbackProvider;
     private final McpConnectionHealthService connectionHealthService;
     private final ResponseParserService responseParserService;
+    private final McpConnectionRefreshService connectionRefreshService;
     
     public ChatService(ChatModel chatModel, 
                       @Value("${imc.chatbot.system-prompt}") String systemPrompt,
                       @Autowired(required = false) SyncMcpToolCallbackProvider toolCallbackProvider,
                       @Autowired(required = false) McpConnectionHealthService connectionHealthService,
-                      ResponseParserService responseParserService) {
+                      ResponseParserService responseParserService,
+                      @Autowired(required = false) McpConnectionRefreshService connectionRefreshService) {
         this.chatModel = chatModel;
         this.conversationHistory = new ConcurrentHashMap<>();
         this.systemMessage = new SystemMessage(systemPrompt);
         this.toolCallbackProvider = toolCallbackProvider;
         this.connectionHealthService = connectionHealthService;
         this.responseParserService = responseParserService;
+        this.connectionRefreshService = connectionRefreshService;
         
         log.info("✅ ChatService initialized with OpenAI ChatModel");
         log.debug("System prompt loaded: {}", systemPrompt.length() > 100 ? 
@@ -89,13 +94,26 @@ public class ChatService {
             String response;
             
             if (toolCallbackProvider != null) {
-                // Check connection health before attempting to use MCP tools
-                boolean connectionHealthy = connectionHealthService == null || connectionHealthService.isConnectionHealthy();
+                // Proactive connection validation before attempting to use MCP tools
+                boolean connectionHealthy = validateConnectionProactively();
                 
-                if (!connectionHealthy && connectionHealthService != null) {
-                    log.warn("⚠️  MCP connection unhealthy, triggering reconnection attempt");
-                    connectionHealthService.triggerReconnectionAttempt();
-                    connectionHealthy = connectionHealthService.isConnectionHealthy();
+                if (!connectionHealthy) {
+                    log.warn("⚠️ Proactive validation failed, attempting connection recovery");
+                    
+                    // Try connection refresh first (more aggressive than health check)
+                    if (connectionRefreshService != null) {
+                        boolean refreshSuccess = connectionRefreshService.forceConnectionRefresh();
+                        if (refreshSuccess) {
+                            connectionHealthy = true;
+                            log.info("✅ Connection recovered via refresh service");
+                        }
+                    }
+                    
+                    // Fallback to health service recovery
+                    if (!connectionHealthy && connectionHealthService != null) {
+                        connectionHealthService.triggerReconnectionAttempt();
+                        connectionHealthy = connectionHealthService.isConnectionHealthy();
+                    }
                 }
                 
                 try {
@@ -263,5 +281,43 @@ public class ChatService {
         
         // Generic error message
         return "I'm sorry, I encountered an error processing your request. Please try again.";
+    }
+    
+    /**
+     * Proactive connection validation with timeout to prevent hanging.
+     * This is the critical missing piece - validating connections BEFORE attempting to use them.
+     */
+    private boolean validateConnectionProactively() {
+        if (toolCallbackProvider == null) {
+            return false;
+        }
+        
+        try {
+            // Quick validation with timeout to prevent blocking the chat request
+            CompletableFuture<Boolean> validation = CompletableFuture.supplyAsync(() -> {
+                try {
+                    var tools = toolCallbackProvider.getToolCallbacks();
+                    boolean hasTools = tools != null && tools.length > 0;
+                    
+                    if (hasTools) {
+                        log.debug("Proactive validation successful - {} tools available", tools.length);
+                    } else {
+                        log.debug("Proactive validation failed - no tools available");
+                    }
+                    
+                    return hasTools;
+                } catch (Exception e) {
+                    log.debug("Proactive validation failed with exception: {}", e.getMessage());
+                    return false;
+                }
+            });
+            
+            // Use a short timeout to prevent blocking chat responses
+            return validation.get(5, TimeUnit.SECONDS);
+            
+        } catch (Exception e) {
+            log.debug("Proactive connection validation failed: {}", e.getMessage());
+            return false;
+        }
     }
 }

@@ -1,0 +1,265 @@
+name: "MCP Connection Stability Fixes"
+description: "Fix MCP connection loss issues in imc-chatbot after running for extended periods"
+version: "1.0"
+created: "2025-01-26"
+owner: "Development Team"
+
+project:
+  repository: "insurance-megacorp/imc-chatbot"
+  branch: "feature/mcp-connection-resilience"
+  
+problem:
+  summary: "imc-chatbot loses ability to connect to policy-mcp-server after running for a while"
+  impact: "HIGH - affects web interface users who depend on chatbot's MCP tool access for policy information"
+  root_causes:
+    - "Missing forced connection refresh mechanism"
+    - "Inadequate WebClient configuration for long-running connections"
+    - "No proactive connection validation"
+    - "Insufficient error differentiation"
+    - "Potential resource leaks in connection management"
+
+phases:
+  - id: "phase1"
+    name: "Critical Connection Management"
+    duration: "1 week"
+    priority: "P0"
+    description: "Implement critical fixes for connection refresh and validation"
+    
+    tasks:
+      - id: "task1.1"
+        name: "Implement Forced Connection Refresh Service"
+        description: "Create McpConnectionRefreshService to force complete reconnection"
+        priority: "P0"
+        estimated_hours: 16
+        assignee: "backend_dev"
+        dependencies: []
+        files:
+          - "src/main/java/com/insurancemegacorp/imcchatbot/service/McpConnectionRefreshService.java"
+        acceptance_criteria:
+          - "Service can force Spring AI MCP client reconnection"
+          - "Service includes fallback to application context refresh"
+          - "Integration with existing health service"
+          - "Unit tests with 80%+ coverage"
+        
+      - id: "task1.2" 
+        name: "Enhanced WebClient Configuration"
+        description: "Configure WebClient with connection pooling and lifecycle management"
+        priority: "P0"
+        estimated_hours: 8
+        assignee: "backend_dev"
+        dependencies: []
+        files:
+          - "src/main/java/com/insurancemegacorp/imcchatbot/config/WebClientConfig.java"
+        acceptance_criteria:
+          - "Connection pooling with max 10 connections"
+          - "Connection timeouts: 30s connect, 2min response"
+          - "Keep-alive and compression enabled"
+          - "Max idle time: 5min, max lifetime: 15min"
+          - "Background connection eviction every 2min"
+        
+      - id: "task1.3"
+        name: "Proactive Connection Validation"
+        description: "Add proactive validation before MCP tool usage"
+        priority: "P1"
+        estimated_hours: 6
+        assignee: "backend_dev"
+        dependencies: ["task1.1"]
+        files:
+          - "src/main/java/com/insurancemegacorp/imcchatbot/service/ChatService.java"
+        acceptance_criteria:
+          - "Validation with 5-second timeout"
+          - "Non-blocking async validation"
+          - "Integration with ChatService.chat() method"
+          - "Graceful fallback when validation fails"
+        
+      - id: "task1.4"
+        name: "Integration Testing"
+        description: "Test Phase 1 implementations together"
+        priority: "P0"
+        estimated_hours: 12
+        assignee: "qa_engineer"
+        dependencies: ["task1.1", "task1.2", "task1.3"]
+        files:
+          - "src/test/java/com/insurancemegacorp/imcchatbot/integration/McpConnectionIntegrationTest.java"
+        acceptance_criteria:
+          - "24-hour stability test passes"
+          - "Connection refresh under load test"
+          - "Network interruption recovery test"
+          - "All existing functionality preserved"
+
+  - id: "phase2"
+    name: "Advanced Resilience Features"
+    duration: "1 week"
+    priority: "P1" 
+    description: "Implement advanced connection management and error handling"
+    dependencies: ["phase1"]
+    
+    tasks:
+      - id: "task2.1"
+        name: "Connection Pool Rotation Service"
+        description: "Implement proactive connection rotation to prevent staleness"
+        priority: "P1"
+        estimated_hours: 10
+        assignee: "backend_dev"
+        dependencies: ["task1.1"]
+        files:
+          - "src/main/java/com/insurancemegacorp/imcchatbot/service/McpConnectionRotationService.java"
+        acceptance_criteria:
+          - "Scheduled rotation every 30 minutes"
+          - "Configurable rotation intervals"
+          - "Integration with refresh service"
+          - "Metrics collection for rotation events"
+        
+      - id: "task2.2"
+        name: "Enhanced Error Classification"
+        description: "Implement intelligent error classification and handling"
+        priority: "P1"
+        estimated_hours: 12
+        assignee: "backend_dev"
+        dependencies: []
+        files:
+          - "src/main/java/com/insurancemegacorp/imcchatbot/service/McpConnectionHealthService.java"
+        acceptance_criteria:
+          - "Error types: NETWORK_TIMEOUT, CONNECTION_REFUSED, SSL_HANDSHAKE, READ_TIMEOUT, UNKNOWN"
+          - "Different retry strategies per error type"
+          - "Error classification with 95%+ accuracy"
+          - "Improved logging with error context"
+        
+      - id: "task2.3"
+        name: "Configuration Enhancement"
+        description: "Add rotation and error handling configurations"
+        priority: "P2"
+        estimated_hours: 4
+        assignee: "backend_dev"
+        dependencies: ["task2.1", "task2.2"]
+        files:
+          - "src/main/resources/application-mcp.properties"
+        acceptance_criteria:
+          - "Rotation configuration properties"
+          - "Error-specific retry configurations"
+          - "Environment-specific defaults"
+          - "Configuration validation"
+
+  - id: "phase3"
+    name: "Production Optimizations"
+    duration: "1 week"
+    priority: "P2"
+    description: "Cloud Foundry optimizations and comprehensive monitoring"
+    dependencies: ["phase2"]
+    
+    tasks:
+      - id: "task3.1"
+        name: "Cloud Foundry Optimizations"
+        description: "Optimize configurations for Cloud Foundry deployment"
+        priority: "P2"
+        estimated_hours: 8
+        assignee: "devops_engineer"
+        dependencies: []
+        files:
+          - "src/main/resources/application-mcp.properties"
+          - "manifest.yml"
+        acceptance_criteria:
+          - "CF-optimized timeouts (45s connect/read)"
+          - "Aggressive heartbeat intervals (15s-3min)"
+          - "CF-specific retry strategies"
+          - "Load balancer compatibility"
+        
+      - id: "task3.2"
+        name: "Metrics and Observability"
+        description: "Implement comprehensive metrics collection"
+        priority: "P2"
+        estimated_hours: 16
+        assignee: "backend_dev"
+        dependencies: []
+        files:
+          - "src/main/java/com/insurancemegacorp/imcchatbot/config/McpMetricsConfiguration.java"
+          - "src/main/java/com/insurancemegacorp/imcchatbot/dto/McpConnectionEvent.java"
+        acceptance_criteria:
+          - "Connection success/failure rate metrics"
+          - "Recovery time measurements"
+          - "Error classification metrics"
+          - "Heartbeat success rate tracking"
+          - "Dashboard-ready metric exports"
+        
+      - id: "task3.3"
+        name: "Performance Testing"
+        description: "Comprehensive performance and load testing"
+        priority: "P2"
+        estimated_hours: 20
+        assignee: "qa_engineer"
+        dependencies: ["task3.1", "task3.2"]
+        files:
+          - "src/test/java/com/insurancemegacorp/imcchatbot/performance/McpConnectionLoadTest.java"
+        acceptance_criteria:
+          - "High-load testing (100+ concurrent requests)"
+          - "Extended stability testing (7+ days)"
+          - "Cloud Foundry deployment validation"
+          - "Performance baseline establishment"
+
+deliverables:
+  - name: "Phase 1 Release"
+    description: "Critical connection management fixes"
+    due_date: "Week 1"
+    success_criteria:
+      - "95% reduction in connection loss incidents"
+      - "< 30 second recovery time from failures"
+      - "All existing functionality preserved"
+      - "Integration tests passing"
+    
+  - name: "Phase 2 Release"  
+    description: "Advanced resilience features"
+    due_date: "Week 2"
+    success_criteria:
+      - "99% uptime for MCP tool availability"
+      - "Intelligent retry strategies working"
+      - "Proactive connection management active"
+      - "Error classification accuracy > 95%"
+    
+  - name: "Phase 3 Release"
+    description: "Production-ready deployment"
+    due_date: "Week 3"
+    success_criteria:
+      - "Cloud Foundry optimization complete"
+      - "Comprehensive monitoring active"
+      - "Performance baselines established"
+      - "7-day stability test passed"
+
+risks:
+  - id: "risk1"
+    description: "Spring AI Integration Complexity"
+    probability: "MEDIUM"
+    impact: "HIGH"
+    mitigation: "Incremental implementation with thorough testing at each step"
+    
+  - id: "risk2"
+    description: "Resource Usage Increase"
+    probability: "LOW"
+    impact: "MEDIUM"
+    mitigation: "Performance monitoring and configurable intervals"
+    
+  - id: "risk3"
+    description: "Configuration Complexity"
+    probability: "MEDIUM"
+    impact: "MEDIUM"
+    mitigation: "Profile-based defaults and comprehensive documentation"
+
+validation:
+  unit_tests:
+    coverage_target: 80
+    critical_paths: ["connection refresh", "error classification", "proactive validation"]
+    
+  integration_tests:
+    scenarios: ["24-hour stability", "network interruption", "high load", "CF deployment"]
+    success_criteria: ["99% uptime", "< 30s recovery", "resource usage < 110% baseline"]
+    
+  monitoring:
+    metrics: ["connection success rate > 99%", "recovery time < 30s", "resource usage delta < 10%"]
+    alerts: ["connection failure rate > 1%", "recovery time > 60s", "circuit breaker open > 5min"]
+
+rollback_plan:
+  triggers: ["connection success rate < 90%", "recovery time > 2min", "critical functionality broken"]
+  steps:
+    - "Disable new connection management features via feature flags"
+    - "Revert to previous Spring profiles"
+    - "Monitor for 24 hours"
+    - "Investigate and fix issues before re-enabling"

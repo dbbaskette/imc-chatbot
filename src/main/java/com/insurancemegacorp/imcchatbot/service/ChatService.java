@@ -3,8 +3,6 @@ package com.insurancemegacorp.imcchatbot.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -15,7 +13,6 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 import com.insurancemegacorp.imcchatbot.dto.StructuredResponse;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -30,33 +27,52 @@ public class ChatService {
     private static final int MAX_CONVERSATION_HISTORY = 20; // Maximum messages to keep in history
     
     private final ChatModel chatModel;
+    private final ChatClient chatClient;
     private final Map<String, List<Message>> conversationHistory;
     private final SystemMessage systemMessage;
-    private final SyncMcpToolCallbackProvider toolCallbackProvider;
-    private final McpConnectionHealthService connectionHealthService;
     private final ResponseParserService responseParserService;
     
-    public ChatService(ChatModel chatModel, 
+    public ChatService(ChatModel chatModel,
+                      ChatClient chatClient,
                       @Value("${imc.chatbot.system-prompt}") String systemPrompt,
-                      @Autowired(required = false) SyncMcpToolCallbackProvider toolCallbackProvider,
-                      @Autowired(required = false) McpConnectionHealthService connectionHealthService,
                       ResponseParserService responseParserService) {
         this.chatModel = chatModel;
+        this.chatClient = chatClient;
         this.conversationHistory = new ConcurrentHashMap<>();
         this.systemMessage = new SystemMessage(systemPrompt);
-        this.toolCallbackProvider = toolCallbackProvider;
-        this.connectionHealthService = connectionHealthService;
         this.responseParserService = responseParserService;
         
-        log.info("✅ ChatService initialized with OpenAI ChatModel");
-        log.debug("System prompt loaded: {}", systemPrompt.length() > 100 ? 
+        log.info("✅ ChatService initialized with ChatClient (MCP tools auto-configured)");
+        log.debug("System prompt loaded: {} characters", systemPrompt.length() > 100 ? 
             systemPrompt.substring(0, 100) + "..." : systemPrompt);
-            
-        if (toolCallbackProvider != null) {
-            int toolCount = toolCallbackProvider.getToolCallbacks().length;
-            log.info("🔧 ChatService configured with {} MCP tool(s) for AI usage", toolCount);
-        } else {
-            log.info("💬 ChatService running in chat-only mode (no MCP tools available)");
+        
+        // Log which AI model configuration is being used
+        try {
+            if (chatModel != null) {
+                String modelClassName = chatModel.getClass().getName();
+                log.info("🤖 AI Model Class: {}", modelClassName);
+                
+                // Determine if it's bound service or API key
+                if (modelClassName.contains("OpenAiChatModel")) {
+                    if (System.getenv("OPENAI_API_KEY") != null) {
+                        log.info("🔑 Using OpenAI API Key configuration");
+                    } else {
+                        log.info("🔗 Using OpenAI Bound Service configuration");
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Could not determine model configuration: {}", e.getMessage());
+        }
+        
+        // Log active profiles for debugging
+        try {
+            String[] activeProfiles = System.getProperty("spring.profiles.active", "").split(",");
+            if (activeProfiles.length > 0 && !activeProfiles[0].isEmpty()) {
+                log.info("📋 Active Spring profiles: {}", String.join(", ", activeProfiles));
+            }
+        } catch (Exception e) {
+            log.debug("Could not determine active profiles: {}", e.getMessage());
         }
     }
     
@@ -86,62 +102,68 @@ public class ChatService {
             // Build prompt with conversation context and available tools
             // Call OpenAI with tools available using ChatClient
             long startTime = System.currentTimeMillis();
+            
+            // Log the complete prompt being sent to OpenAI (for debugging)
+            logPromptDetails(sessionId, history, userMessage);
+            
             String response;
             
-            if (toolCallbackProvider != null) {
-                // Check connection health before attempting to use MCP tools
-                boolean connectionHealthy = connectionHealthService == null || connectionHealthService.isConnectionHealthy();
+            log.info("🔄 Starting OpenAI request for session: {}", sessionId);
+            
+            // Use the configured ChatClient which automatically handles MCP tools
+            // The ChatClient bean is configured with system prompt and tool callbacks
+            try {
+                log.info("🤖 Using configured ChatClient (MCP tools auto-registered)");
                 
-                if (!connectionHealthy && connectionHealthService != null) {
-                    log.warn("⚠️  MCP connection unhealthy, triggering reconnection attempt");
-                    connectionHealthService.triggerReconnectionAttempt();
-                    connectionHealthy = connectionHealthService.isConnectionHealthy();
+                // Use the configured ChatClient - it will automatically use available MCP tools
+                var chatResponse = chatClient
+                    .prompt()
+                    .messages(history)
+                    .call()
+                    .chatResponse();
+                
+                log.info("🔍 ChatResponse metadata: {}", chatResponse.getMetadata());
+                log.info("🔍 ChatResponse results count: {}", chatResponse.getResults().size());
+                
+                if (!chatResponse.getResults().isEmpty()) {
+                    var result = chatResponse.getResults().get(0);
+                    response = result.getOutput().getText();
+                    log.info("🔍 Raw result output: '{}'", response);
+                    log.info("🔍 Result metadata: {}", result.getMetadata());
+                } else {
+                    log.error("❌ ChatResponse has no results!");
+                    response = null;
                 }
                 
-                try {
-                    ToolCallback[] toolCallbacks = toolCallbackProvider.getToolCallbacks();
-                    if (toolCallbacks.length > 0 && connectionHealthy) {
-                        log.debug("Using ChatClient with {} MCP tool(s)", toolCallbacks.length);
-                        
-                        // Use ChatClient with MCP toolCallbacks as per Spring AI documentation
-                        response = ChatClient.create(chatModel)
-                            .prompt()
-                            .messages(history)
-                            .toolCallbacks(List.of(toolCallbacks))
-                            .call()
-                            .content();
-                    } else {
-                        if (!connectionHealthy) {
-                            log.warn("MCP connection unhealthy, using basic chat without tools");
-                        } else {
-                            log.debug("No MCP tools available, using basic ChatModel call");
-                        }
-                        response = chatModel.call(new Prompt(history)).getResult().getOutput().getText();
-                    }
-                } catch (Exception e) {
-                    log.warn("Failed to use MCP tools, falling back to basic chat: {}", e.getMessage());
-                    
-                    // Mark connection as unhealthy if we get repeated failures
-                    if (connectionHealthService != null) {
-                        connectionHealthService.triggerReconnectionAttempt();
-                    }
-                    
-                    response = chatModel.call(new Prompt(history)).getResult().getOutput().getText();
-                }
-            } else {
-                log.debug("No tool provider available, using basic ChatModel call");
+                log.info("✅ ChatClient completed successfully");
+            } catch (Exception e) {
+                log.warn("⚠️ ChatClient failed, falling back to basic ChatModel: {}", e.getMessage());
+                log.error("Full exception details:", e);
+                
+                log.info("🔄 Calling fallback basic ChatModel...");
                 response = chatModel.call(new Prompt(history)).getResult().getOutput().getText();
+                log.info("✅ Fallback ChatModel completed successfully");
             }
             
             long responseTime = System.currentTimeMillis() - startTime;
             
-            // Ensure response is not null
+            // Enhanced debugging for null/empty responses
             if (response == null) {
+                log.error("❌ ChatClient returned NULL response after {}ms for session: {}", responseTime, sessionId);
                 response = "I apologize, but I'm unable to generate a response at this time. Please try again.";
+            } else if (response.trim().isEmpty()) {
+                log.error("❌ ChatClient returned EMPTY response after {}ms for session: {}", responseTime, sessionId);
+                response = "I apologize, but I received an empty response. Please try again.";
+            } else {
+                log.info("✅ ChatClient returned valid response after {}ms for session: {}", responseTime, sessionId);
             }
             
+            // Log the complete response received from OpenAI (for debugging)
+            logResponseDetails(sessionId, response, responseTime);
+            
             // Filter out thinking process for models that expose it (like Qwen)
-            response = filterThinkingProcess(response);
+            // Temporarily disabled to debug GPT-4.1 response filtering issues
+            // response = filterThinkingProcess(response);
             
             // Parse the response to detect structured data
             StructuredResponse structuredResponse = responseParserService.parseResponse(response);
@@ -263,5 +285,60 @@ public class ChatService {
         
         // Generic error message
         return "I'm sorry, I encountered an error processing your request. Please try again.";
+    }
+    
+    /**
+     * Log detailed prompt information for debugging
+     */
+    private void logPromptDetails(String sessionId, List<Message> history, String userMessage) {
+        if (log.isDebugEnabled()) {
+            log.debug("=== PROMPT DEBUG for session {} ===", sessionId);
+            log.debug("Total messages in history: {}", history.size());
+            
+            for (int i = 0; i < history.size(); i++) {
+                Message msg = history.get(i);
+                String role = "UNKNOWN";
+                String content = "";
+                
+                if (msg instanceof SystemMessage) {
+                    role = "SYSTEM";
+                    content = ((SystemMessage) msg).getText();
+                } else if (msg instanceof UserMessage) {
+                    role = "USER";
+                    content = ((UserMessage) msg).getText();
+                } else if (msg instanceof AssistantMessage) {
+                    role = "ASSISTANT";
+                    content = ((AssistantMessage) msg).getText();
+                }
+                
+                // Truncate very long content for readability
+                String truncatedContent = content != null && content.length() > 200 ? content.substring(0, 200) + "..." : 
+                                        (content != null ? content : "[null content]");
+                log.debug("Message {}: [{}] {}", i, role, truncatedContent);
+            }
+            
+            log.debug("=== END PROMPT DEBUG ===");
+        }
+        
+        // Always log the current user message for basic debugging
+        log.info("📝 User message for session {}: {}", sessionId, 
+                userMessage.length() > 100 ? userMessage.substring(0, 100) + "..." : userMessage);
+    }
+    
+    /**
+     * Log detailed response information for debugging
+     */
+    private void logResponseDetails(String sessionId, String response, long responseTime) {
+        // Always log basic response info
+        log.info("🤖 AI response for session {} ({}ms): {}", sessionId, responseTime,
+                response != null && response.length() > 150 ? response.substring(0, 150) + "..." : response);
+        
+        if (log.isDebugEnabled() && response != null) {
+            log.debug("=== RESPONSE DEBUG for session {} ===", sessionId);
+            log.debug("Response time: {}ms", responseTime);
+            log.debug("Response length: {} characters", response.length());
+            log.debug("Full response: {}", response);
+            log.debug("=== END RESPONSE DEBUG ===");
+        }
     }
 }

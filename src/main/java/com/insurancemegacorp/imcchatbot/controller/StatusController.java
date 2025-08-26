@@ -38,18 +38,10 @@ public class StatusController {
             boolean openaiHealthy = chatService.isHealthy();
             int activeSessions = chatService.getActiveSessionCount();
             boolean toolsEnabled = toolCallbackProvider != null;
-            int availableTools = 0;
             
-            // Get tool count with timeout protection
-            if (toolsEnabled) {
-                try {
-                    // Use a quick timeout to avoid blocking the status endpoint
-                    availableTools = getToolCountWithTimeout();
-                } catch (Exception e) {
-                    log.warn("Failed to get MCP tool count: {}", e.getMessage());
-                    // Continue with availableTools = 0
-                }
-            }
+            // Don't check MCP tool count to avoid blocking - just return a safe default
+            // The tools will be available when needed, but we don't want to block the status endpoint
+            int availableTools = toolsEnabled ? -1 : 0; // -1 means "available but count not checked"
             
             List<String> activeProfiles = Arrays.asList(environment.getActiveProfiles());
             
@@ -73,13 +65,23 @@ public class StatusController {
         }
     }
     
-    private int getToolCountWithTimeout() {
-        try {
-            var callbacks = toolCallbackProvider.getToolCallbacks();
-            return callbacks != null ? callbacks.length : 0;
-        } catch (Exception e) {
-            log.debug("MCP tools temporarily unavailable: {}", e.getMessage());
-            return 0;
-        }
+    /**
+     * Simple health check endpoint for Cloud Foundry
+     * This endpoint responds quickly without checking external dependencies
+     */
+    @GetMapping("/health")
+    public ResponseEntity<String> getHealth() {
+        return ResponseEntity.ok("OK");
     }
+    
+    /**
+     * Liveness probe endpoint for Cloud Foundry
+     * This endpoint checks if the application is alive and responding
+     */
+    @GetMapping("/liveness")
+    public ResponseEntity<String> getLiveness() {
+        return ResponseEntity.ok("ALIVE");
+    }
+    
+
 }

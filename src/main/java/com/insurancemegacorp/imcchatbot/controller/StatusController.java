@@ -82,4 +82,13 @@ public class StatusController {
             return 0;
         }
     }
+    
+    /**
+     * Simple health check endpoint for Cloud Foundry
+     * This endpoint responds quickly without checking external dependencies
+     */
+    @GetMapping("/health")
+    public ResponseEntity<String> getHealth() {
+        return ResponseEntity.ok("OK");
+    }
 }

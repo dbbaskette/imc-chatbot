@@ -2,66 +2,51 @@ package com.insurancemegacorp.imcchatbot.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
-
-import org.springframework.ai.chat.prompt.Prompt;
-import com.insurancemegacorp.imcchatbot.dto.StructuredResponse;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import com.insurancemegacorp.imcchatbot.dto.StructuredResponse;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Clean, simplified ChatService using official Spring AI MCP patterns
+ * Removes all custom heartbeat/reconnection logic in favor of Spring AI built-ins
+ */
 @Service
 public class ChatService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatService.class);
-    private static final int MAX_CONVERSATION_HISTORY = 20; // Maximum messages to keep in history
+    private static final int MAX_CONVERSATION_HISTORY = 20;
     
-    private final ChatModel chatModel;
+    private final ChatClient chatClient;
     private final Map<String, List<Message>> conversationHistory;
     private final SystemMessage systemMessage;
-    private final SyncMcpToolCallbackProvider toolCallbackProvider;
-    private final McpConnectionHealthService connectionHealthService;
     private final ResponseParserService responseParserService;
     
-    public ChatService(ChatModel chatModel, 
+    public ChatService(ChatClient chatClient, 
                       @Value("${imc.chatbot.system-prompt}") String systemPrompt,
-                      @Autowired(required = false) SyncMcpToolCallbackProvider toolCallbackProvider,
-                      @Autowired(required = false) McpConnectionHealthService connectionHealthService,
                       ResponseParserService responseParserService) {
-        this.chatModel = chatModel;
+        this.chatClient = chatClient;
         this.conversationHistory = new ConcurrentHashMap<>();
         this.systemMessage = new SystemMessage(systemPrompt);
-        this.toolCallbackProvider = toolCallbackProvider;
-        this.connectionHealthService = connectionHealthService;
         this.responseParserService = responseParserService;
         
-        log.info("✅ ChatService initialized with OpenAI ChatModel");
+        log.info("✅ ChatService initialized with Spring AI ChatClient (MCP tools auto-configured)");
         log.debug("System prompt loaded: {}", systemPrompt.length() > 100 ? 
             systemPrompt.substring(0, 100) + "..." : systemPrompt);
-            
-        if (toolCallbackProvider != null) {
-            int toolCount = toolCallbackProvider.getToolCallbacks().length;
-            log.info("🔧 ChatService configured with {} MCP tool(s) for AI usage", toolCount);
-        } else {
-            log.info("💬 ChatService running in chat-only mode (no MCP tools available)");
-        }
     }
     
     /**
      * Send a message to the AI and get a response, maintaining conversation context
+     * Uses Spring AI ChatClient which automatically handles MCP tools
      */
     public StructuredResponse chat(String sessionId, String userMessage) {
         if (userMessage == null || userMessage.trim().isEmpty()) {
@@ -69,7 +54,7 @@ public class ChatService {
         }
         
         try {
-            log.debug("Processing chat request for session: {}, message length: {}", sessionId, userMessage.length());
+            log.info("📝 User message for session {}: {}", sessionId, userMessage);
             
             // Get or create conversation history
             List<Message> history = conversationHistory.computeIfAbsent(sessionId, k -> new ArrayList<>());
@@ -83,83 +68,47 @@ public class ChatService {
             UserMessage userMsg = new UserMessage(userMessage);
             history.add(userMsg);
             
-            // Build prompt with conversation context and available tools
-            // Call OpenAI with tools available using ChatClient
             long startTime = System.currentTimeMillis();
-            String response;
             
-            if (toolCallbackProvider != null) {
-                // Check connection health before attempting to use MCP tools
-                boolean connectionHealthy = connectionHealthService == null || connectionHealthService.isConnectionHealthy();
-                
-                if (!connectionHealthy && connectionHealthService != null) {
-                    log.warn("⚠️  MCP connection unhealthy, triggering reconnection attempt");
-                    connectionHealthService.triggerReconnectionAttempt();
-                    connectionHealthy = connectionHealthService.isConnectionHealthy();
-                }
-                
-                try {
-                    ToolCallback[] toolCallbacks = toolCallbackProvider.getToolCallbacks();
-                    if (toolCallbacks.length > 0 && connectionHealthy) {
-                        log.debug("Using ChatClient with {} MCP tool(s)", toolCallbacks.length);
-                        
-                        // Use ChatClient with MCP toolCallbacks as per Spring AI documentation
-                        response = ChatClient.create(chatModel)
-                            .prompt()
-                            .messages(history)
-                            .toolCallbacks(List.of(toolCallbacks))
-                            .call()
-                            .content();
-                    } else {
-                        if (!connectionHealthy) {
-                            log.warn("MCP connection unhealthy, using basic chat without tools");
-                        } else {
-                            log.debug("No MCP tools available, using basic ChatModel call");
-                        }
-                        response = chatModel.call(new Prompt(history)).getResult().getOutput().getText();
-                    }
-                } catch (Exception e) {
-                    log.warn("Failed to use MCP tools, falling back to basic chat: {}", e.getMessage());
-                    
-                    // Mark connection as unhealthy if we get repeated failures
-                    if (connectionHealthService != null) {
-                        connectionHealthService.triggerReconnectionAttempt();
-                    }
-                    
-                    response = chatModel.call(new Prompt(history)).getResult().getOutput().getText();
-                }
-            } else {
-                log.debug("No tool provider available, using basic ChatModel call");
-                response = chatModel.call(new Prompt(history)).getResult().getOutput().getText();
-            }
+            // Use ChatClient - Spring AI automatically handles MCP tools
+            log.info("🤖 Using Spring AI ChatClient with auto-configured MCP tools");
+            String response = chatClient
+                .prompt()
+                .messages(history)
+                .call()
+                .content();
             
             long responseTime = System.currentTimeMillis() - startTime;
             
             // Ensure response is not null
-            if (response == null) {
+            if (response == null || response.trim().isEmpty()) {
+                log.warn("⚠️ Received empty response, providing fallback");
                 response = "I apologize, but I'm unable to generate a response at this time. Please try again.";
             }
             
             // Filter out thinking process for models that expose it (like Qwen)
             response = filterThinkingProcess(response);
             
+            log.info("🤖 AI response for session {} ({}ms): {}", sessionId, responseTime, 
+                     response.length() > 100 ? response.substring(0, 100) + "..." : response);
+            
             // Parse the response to detect structured data
             StructuredResponse structuredResponse = responseParserService.parseResponse(response);
             
-            // Add assistant response to history (use original text for conversation context)
+            // Add assistant response to history
             AssistantMessage assistantMsg = new AssistantMessage(response);
             history.add(assistantMsg);
             
             // Manage conversation history size
             manageConversationHistory(history);
             
-            log.debug("Chat response generated for session: {} in {}ms, response length: {}, structured type: {}", 
+            log.debug("✅ Chat response generated for session: {} in {}ms, response length: {}, structured type: {}", 
                      sessionId, responseTime, response.length(), structuredResponse.type());
             
             return structuredResponse;
             
         } catch (Exception e) {
-            log.error("Chat error for session {}: {}", sessionId, e.getMessage(), e);
+            log.error("❌ Chat error for session {}: {}", sessionId, e.getMessage(), e);
             return StructuredResponse.text(handleChatError(e));
         }
     }
@@ -170,7 +119,7 @@ public class ChatService {
     public void clearSession(String sessionId) {
         List<Message> removed = conversationHistory.remove(sessionId);
         if (removed != null) {
-            log.debug("Cleared conversation history for session: {} ({} messages)", sessionId, removed.size());
+            log.debug("🧹 Cleared conversation history for session: {} ({} messages)", sessionId, removed.size());
         }
     }
     
@@ -182,14 +131,15 @@ public class ChatService {
     }
     
     /**
-     * Check if the ChatService is healthy (can make basic requests)
+     * Check if the ChatService is healthy (simplified - ChatClient handles MCP health)
      */
     public boolean isHealthy() {
         try {
-            // Make a simple test request
-            Prompt testPrompt = new Prompt("Say 'OK' if you can respond");
-            ChatResponse response = chatModel.call(testPrompt);
-            String testResponse = response.getResult().getOutput().getText();
+            // Simple test using ChatClient
+            String testResponse = chatClient
+                .prompt("Say 'OK' if you can respond")
+                .call()
+                .content();
             return testResponse != null && !testResponse.trim().isEmpty();
         } catch (Exception e) {
             log.warn("Health check failed: {}", e.getMessage());
@@ -202,40 +152,38 @@ public class ChatService {
      */
     private void manageConversationHistory(List<Message> history) {
         if (history.size() > MAX_CONVERSATION_HISTORY) {
-            // Remove oldest messages (keep system message if present)
             int messagesToRemove = history.size() - MAX_CONVERSATION_HISTORY;
             for (int i = 0; i < messagesToRemove; i++) {
-                // Remove from position 1 to preserve system message at position 0 if it exists
+                // Remove from position 1 to preserve system message at position 0
                 if (history.size() > MAX_CONVERSATION_HISTORY) {
                     history.remove(1);
                 }
             }
-            log.debug("Trimmed conversation history, removed {} old messages", messagesToRemove);
+            log.debug("📏 Trimmed conversation history, removed {} old messages", messagesToRemove);
         }
     }
     
     /**
      * Filter out thinking process from AI responses (e.g., <think>...</think> tags)
-     * This is useful for models like Qwen that expose their reasoning process
      */
     private String filterThinkingProcess(String response) {
         if (response == null) {
             return response;
         }
         
-        // Remove <think>...</think> blocks (case insensitive, multiline with DOTALL flag)
+        // Remove <think>...</think> blocks (case insensitive, multiline)
         String filtered = response.replaceAll("(?i)(?s)<think[^>]*>.*?</think>", "");
         
         // Remove any remaining thinking patterns that might not be properly closed
         filtered = filtered.replaceAll("(?i)(?s)<think[^>]*>.*", "");
         
-        // Clean up extra whitespace and newlines that might be left behind
-        filtered = filtered.replaceAll("\\n\\s*\\n\\s*\\n", "\n\n"); // Replace multiple newlines with double newline
+        // Clean up extra whitespace
+        filtered = filtered.replaceAll("\\n\\s*\\n\\s*\\n", "\n\n");
         filtered = filtered.trim();
         
         // If filtering removed everything, return a default message
         if (filtered.isEmpty()) {
-            log.warn("Response filtering removed all content, returning default message");
+            log.warn("⚠️ Response filtering removed all content, returning default message");
             return "I apologize, but I'm unable to provide a clear response at this time. Please try rephrasing your question.";
         }
         
@@ -249,7 +197,7 @@ public class ChatService {
         String errorMessage = e.getMessage();
         
         if (errorMessage != null) {
-            // Handle specific OpenAI API errors
+            // Handle specific errors
             if (errorMessage.contains("rate limit") || errorMessage.contains("429")) {
                 return "I'm currently experiencing high demand. Please wait a moment and try again.";
             } else if (errorMessage.contains("token") && errorMessage.contains("limit")) {
@@ -261,7 +209,6 @@ public class ChatService {
             }
         }
         
-        // Generic error message
         return "I'm sorry, I encountered an error processing your request. Please try again.";
     }
 }

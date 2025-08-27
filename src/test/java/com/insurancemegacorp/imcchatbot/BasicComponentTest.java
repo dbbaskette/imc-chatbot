@@ -1,6 +1,5 @@
 package com.insurancemegacorp.imcchatbot;
 
-import com.insurancemegacorp.imcchatbot.cli.CliRunner;
 import com.insurancemegacorp.imcchatbot.service.ChatService;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
@@ -27,13 +26,10 @@ class BasicComponentTest {
         
         // Verify key classes can be instantiated (without dependencies)
         Class<?> chatServiceClass = ChatService.class;
-        Class<?> cliRunnerClass = CliRunner.class;
         
         // Basic assertions to ensure classes exist
         assert chatServiceClass != null;
-        assert cliRunnerClass != null;
         assert chatServiceClass.getName().contains("ChatService");
-        assert cliRunnerClass.getName().contains("CliRunner");
     }
 
     @Test
@@ -45,6 +41,5 @@ class BasicComponentTest {
         String expectedBasePackage = "com.insurancemegacorp.imcchatbot";
         
         assert ChatService.class.getPackageName().startsWith(expectedBasePackage);
-        assert CliRunner.class.getPackageName().startsWith(expectedBasePackage);
     }
 }

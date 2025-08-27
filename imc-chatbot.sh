@@ -1,178 +1,177 @@
 #!/bin/bash
 
-# IMC Chatbot - Insurance MegaCorp AI Chatbot with MCP Tool Integration
-# Usage: ./imc-chatbot.sh [options]
+# IMC Chatbot Build and Deploy Script
+# Standard interface: ./imc-chatbot.sh --profile <profile> [--deploy] [--help]
+# Profiles: cloud (bound services), cloud-ai (OpenAI API keys)
 
 set -e
 
-# Load environment variables from .env file if it exists
-if [ -f ".env" ]; then
-    echo "🔧 Loading environment variables from .env file..."
-    export $(cat .env | grep -v '^#' | grep -v '^$' | xargs)
-else
-    echo "⚠️  No .env file found. Run './setup-env.sh' to create one."
-    echo "⚠️  You'll need to set OPENAI_API_KEY manually or the chat won't work."
-fi
-
 # Default values
-PROFILE="local"
+PROFILE=""
+DEPLOY=false
+BUILD=true
 VERBOSE=false
-REBUILD=false
-ENABLE_MCP=false
-
-# Function to get jar name dynamically
-get_jar_name() {
-    if [[ -d "target" ]]; then
-        # Find the jar file in target directory (excluding sources and javadoc jars)
-        local jar_file=$(find target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
-        if [[ -n "$jar_file" ]]; then
-            basename "$jar_file"
-        else
-            # If no JAR found, it might be because of a clean. We'll build later.
-            return
-        fi
-    fi
-}
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-# Function to print usage
-usage() {
-    echo "IMC Chatbot - Insurance MegaCorp AI Chatbot with MCP Tool Integration."
-    echo ""
-    echo "USAGE:"
-    echo "    ./imc-chatbot.sh [OPTIONS]"
-    echo ""
-    echo "OPTIONS:"
-    echo "    --local                     Use local development profile (default)"  
-    echo "    --cloud                     Use cloud deployment profile"
-    echo "    --mcp                       Enable MCP tool integration (can combine with --local or --cloud)"
-    echo "    --rebuild                   Force a clean rebuild of the application"
-    echo "    -h, --help                  Show this help message"
-    echo "    -v, --verbose               Enable verbose output (sets logging to DEBUG)"
-}
-
-# Function to log messages
-log() {
-    if [[ "$VERBOSE" == "true" ]]; then
-        echo -e "${BLUE}[INFO]${NC} $1"
-    fi
-}
-
-error() {
-    echo -e "${RED}[ERROR]${NC} $1" >&2
-}
-
-success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
-}
+HELP=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --local)
-            PROFILE="local"
+        --profile)
+            PROFILE="$2"
+            shift 2
+            ;;
+        --deploy)
+            DEPLOY=true
             shift
             ;;
-        --cloud)
-            PROFILE="cloud"
+        --build)
+            BUILD=true
             shift
             ;;
-        --rebuild)
-            REBUILD=true
+        --no-build)
+            BUILD=false
             shift
             ;;
-        --mcp)
-            ENABLE_MCP=true
-            shift
-            ;;
-        -h|--help)
-            usage
-            exit 0
-            ;;
-        -v|--verbose)
+        --verbose)
             VERBOSE=true
             shift
             ;;
+        --help|-h)
+            HELP=true
+            shift
+            ;;
         *)
-            error "Unknown option: $1"
-            usage
+            echo "❌ Unknown option: $1"
+            echo "Use --help for usage information"
             exit 1
             ;;
     esac
 done
 
+# Help message
+if [ "$HELP" = true ]; then
+    cat << 'EOF'
+IMC Chatbot Build and Deploy Script
+
+Usage: ./imc-chatbot.sh --profile <profile> [options]
+
+Required:
+  --profile <profile>     Deployment profile (cloud | cloud-ai)
+
+Options:
+  --deploy               Deploy to Cloud Foundry after build
+  --no-build             Skip build, only deploy  
+  --verbose              Enable verbose logging
+  --help, -h             Show this help message
+
+Profiles:
+  cloud                  CF bound services (Qwen Ultra, etc.) - no API keys needed
+  cloud-ai               OpenAI API keys - requires OPENAI_API_KEY environment variable
+
+Examples:
+  ./imc-chatbot.sh --profile cloud --deploy
+  ./imc-chatbot.sh --profile cloud-ai --deploy --verbose
+  ./imc-chatbot.sh --profile cloud --no-build --deploy
+
+Environment Variables (for cloud-ai profile):
+  OPENAI_API_KEY         Required for cloud-ai profile
+EOF
+    exit 0
+fi
+
+# Validate required arguments
+if [ -z "$PROFILE" ]; then
+    echo "❌ Error: --profile is required"
+    echo "Available profiles: cloud, cloud-ai"
+    echo "Use --help for full usage information"
+    exit 1
+fi
+
 # Validate profile
 case $PROFILE in
-    local|cloud)
+    cloud|cloud-ai)
+        # Valid profiles
         ;;
     *)
-        error "Invalid profile: $PROFILE. Must be one of: local, cloud"
+        echo "❌ Error: Invalid profile '$PROFILE'"
+        echo "Available profiles: cloud, cloud-ai"
         exit 1
         ;;
 esac
 
-# Build the application if needed or forced
-build_if_needed() {
-    local jar_name=$(get_jar_name)
-    
-    if [[ "$REBUILD" == "true" ]] || [[ -z "$jar_name" ]]; then
-        if [[ "$REBUILD" == "true" ]]; then
-            log "Rebuild requested. Cleaning and packaging..."
-        else
-            warn "JAR not found. Building application..."
-        fi
-        
-        if ! ./mvnw clean package -DskipTests; then
-            error "Build failed."
-            exit 1
-        fi
-        success "Build completed successfully"
-    else
-        log "Using existing JAR: target/$jar_name"
+# Validate cloud-ai specific requirements
+if [ "$PROFILE" = "cloud-ai" ]; then
+    if [ -z "$OPENAI_API_KEY" ]; then
+        echo "❌ Error: OPENAI_API_KEY environment variable is required for cloud-ai profile"
+        echo "Set it with: export OPENAI_API_KEY=your-api-key"
+        exit 1
     fi
-}
-
-echo "🤖 IMC Chatbot - AI-Powered Insurance Assistant"
-echo
-
-build_if_needed
-
-jar_name=$(get_jar_name)
-if [[ -z "$jar_name" ]]; then
-    error "Could not find or build the application JAR. Exiting."
-    exit 1
 fi
 
-jar_path="target/$jar_name"
-
-# Build Spring profiles
-if [[ "$ENABLE_MCP" == "true" ]]; then
-    java_props="-Dspring.profiles.active=$PROFILE,mcp"
-    echo "🔧 MCP tools enabled - connecting to configured MCP servers"
-else
-    java_props="-Dspring.profiles.active=$PROFILE"
-    echo "⚠️ MCP tools disabled - running in chat-only mode"
-fi
-
-if [[ "$VERBOSE" == "true" ]]; then
-    java_props="$java_props -Dlogging.level.org.springframework.ai.mcp=DEBUG"
-fi
-
-echo "Starting IMC Chatbot..."
+echo "🚀 IMC Chatbot Build and Deploy"
 echo "Profile: $PROFILE"
+echo "Build: $BUILD"
+echo "Deploy: $DEPLOY"
 echo
 
-# Run the application
-log "Executing: java $java_props -jar $jar_path"
+# Build if requested
+if [ "$BUILD" = true ]; then
+    echo "🔨 Building application..."
+    if [ "$VERBOSE" = true ]; then
+        ./mvnw clean package
+    else
+        ./mvnw clean package -q
+    fi
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ Build completed successfully"
+    else
+        echo "❌ Build failed"
+        exit 1
+    fi
+    echo
+fi
 
-java $java_props -jar "$jar_path"
+# Deploy if requested  
+if [ "$DEPLOY" = true ]; then
+    echo "☁️  Deploying to Cloud Foundry with profile: $PROFILE"
+    
+    # Select the appropriate manifest
+    MANIFEST="manifest-${PROFILE}.yml"
+    
+    if [ ! -f "$MANIFEST" ]; then
+        echo "❌ Error: Manifest file $MANIFEST not found"
+        exit 1
+    fi
+    
+    echo "Using manifest: $MANIFEST"
+    
+    # Deploy with appropriate manifest
+    if [ "$VERBOSE" = true ]; then
+        cf push imc-chatbot -f "$MANIFEST"
+    else
+        cf push imc-chatbot -f "$MANIFEST" --no-start
+        cf start imc-chatbot
+    fi
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ Deployment completed successfully"
+        echo "🌐 Application URL: https://imc-chatbot.apps.tas-ndc.kuhn-labs.com"
+        echo "🏥 Health Check: https://imc-chatbot.apps.tas-ndc.kuhn-labs.com/api/health"
+    else
+        echo "❌ Deployment failed"
+        exit 1
+    fi
+    echo
+fi
+
+echo "🎉 Script completed successfully!"
+
+# Show next steps
+if [ "$DEPLOY" = true ]; then
+    echo
+    echo "Next steps:"
+    echo "- Test the application: curl https://imc-chatbot.apps.tas-ndc.kuhn-labs.com/api/health"
+    echo "- View logs: cf logs imc-chatbot --recent"
+    echo "- Check status: cf app imc-chatbot"
+fi

@@ -17,6 +17,7 @@ REBUILD=false
 PROFILE="default"
 VERBOSE=false
 MCP_ENABLED=false
+KILL_PREVIOUS=true
 
 # Function to print colored output
 print_info() {
@@ -35,6 +36,52 @@ print_error() {
     echo -e "${RED}❌ $1${NC}"
 }
 
+# Function to kill previous instances
+kill_previous_instances() {
+    print_info "Checking for previous IMC Chatbot instances..."
+    
+    # Find processes running our specific JAR file or main class
+    PIDS=$(ps aux | grep -E "(imc-chatbot-app.*\.jar|ImcChatbotApplication)" | grep -v grep | awk '{print $2}')
+    
+    if [ -n "$PIDS" ]; then
+        print_warning "Found running instances, stopping them..."
+        for PID in $PIDS; do
+            print_info "Killing process $PID"
+            kill -TERM $PID 2>/dev/null || true
+        done
+        
+        # Wait a moment for graceful shutdown
+        sleep 2
+        
+        # Force kill if still running
+        REMAINING_PIDS=$(ps aux | grep -E "(imc-chatbot-app.*\.jar|ImcChatbotApplication)" | grep -v grep | awk '{print $2}')
+        if [ -n "$REMAINING_PIDS" ]; then
+            print_warning "Force killing remaining processes..."
+            for PID in $REMAINING_PIDS; do
+                kill -KILL $PID 2>/dev/null || true
+            done
+        fi
+        
+        print_success "Previous instances stopped"
+    else
+        print_info "No previous instances found"
+    fi
+    
+    # Also check for processes using the target port
+    PORT=${SERVER_PORT:-8080}
+    PORT_PID=$(lsof -ti :$PORT 2>/dev/null || true)
+    if [ -n "$PORT_PID" ]; then
+        print_warning "Found process using port $PORT (PID: $PORT_PID), stopping it..."
+        kill -TERM $PORT_PID 2>/dev/null || true
+        sleep 1
+        # Force kill if still running
+        if lsof -ti :$PORT >/dev/null 2>&1; then
+            kill -KILL $PORT_PID 2>/dev/null || true
+        fi
+        print_success "Port $PORT freed"
+    fi
+}
+
 # Function to show usage
 show_usage() {
     echo "Usage: $0 [OPTIONS]"
@@ -44,6 +91,7 @@ show_usage() {
     echo "  --mcp              Enable MCP profile for tool integration"
     echo "  --verbose          Enable verbose logging"
     echo "  --port PORT        Set server port (default: 8080)"
+    echo "  --no-kill          Don't kill previous instances (for multiple instances)"
     echo "  --help             Show this help message"
     echo ""
     echo "Examples:"
@@ -73,6 +121,10 @@ while [[ $# -gt 0 ]]; do
             SERVER_PORT="$2"
             shift 2
             ;;
+        --no-kill)
+            KILL_PREVIOUS=false
+            shift
+            ;;
         --help)
             show_usage
             exit 0
@@ -86,6 +138,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 print_info "Starting IMC Chatbot..."
+
+# Kill any previous instances (unless disabled)
+if [ "$KILL_PREVIOUS" = true ]; then
+    kill_previous_instances
+else
+    print_info "Skipping previous instance cleanup (--no-kill specified)"
+fi
 
 # Check if .env file exists
 if [ ! -f .env ]; then

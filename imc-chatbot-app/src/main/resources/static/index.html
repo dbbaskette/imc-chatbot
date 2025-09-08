@@ -88,7 +88,7 @@
             border-radius: 18px;
             font-size: 14px;
             line-height: 1.4;
-            white-space: pre-wrap;
+            white-space: normal;
         }
 
         .message.user .message-bubble {
@@ -414,9 +414,12 @@
                                 cleanChunk = cleanChunk.substring(6); // Remove "data: " prefix
                             }
                             
-                            // Add the cleaned chunk to our response text
-                            if (responseText.length > 0 && !responseText.endsWith(' ') && !cleanChunk.startsWith(' ')) {
-                                responseText += ' ';
+                            // Add the cleaned chunk to our response text with proper spacing
+                            if (responseText.length > 0) {
+                                // Add space only if we don't already have one and the chunk doesn't start with punctuation
+                                if (!responseText.endsWith(' ') && !cleanChunk.match(/^[.,!?;:)}\]]/)) {
+                                    responseText += ' ';
+                                }
                             }
                             responseText += cleanChunk;
                             
@@ -479,8 +482,8 @@
 
             updateStreamingMessage(messageElement, text) {
                 const bubble = messageElement.querySelector('.message-bubble');
-                // Clean up the text - remove any remaining formatting issues
-                const cleanText = text.replace(/data:\s*/g, '').trim();
+                // Clean up the text - normalize whitespace and remove extra line breaks
+                const cleanText = text.replace(/data:\s*/g, '').replace(/\s+/g, ' ').trim();
                 bubble.textContent = cleanText;
                 this.scrollToBottom();
             }

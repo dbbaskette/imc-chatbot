@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IMC Chatbot - Insurance Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .chat-container {
+            width: 90%;
+            max-width: 800px;
+            height: 80vh;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            background: #4f46e5;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .chat-header h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+
+        .chat-header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-online {
+            background-color: #10b981;
+        }
+
+        .status-offline {
+            background-color: #ef4444;
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: #f8fafc;
+        }
+
+        .message {
+            margin-bottom: 16px;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message-bubble {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+        }
+
+        .message.user .message-bubble {
+            background: #4f46e5;
+            color: white;
+        }
+
+        .message.assistant .message-bubble {
+            background: white;
+            border: 1px solid #e2e8f0;
+            color: #334155;
+        }
+
+        .message-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            margin: 0 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .message.user .message-avatar {
+            background: #1e293b;
+            color: white;
+        }
+
+        .message.assistant .message-avatar {
+            background: #4f46e5;
+            color: white;
+        }
+
+        .typing-indicator {
+            display: none;
+            margin-bottom: 16px;
+        }
+
+        .typing-indicator .message-bubble {
+            background: white;
+            border: 1px solid #e2e8f0;
+            padding: 16px;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .typing-dots span {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #94a3b8;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+
+        .typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        .chat-input-container {
+            padding: 20px;
+            border-top: 1px solid #e2e8f0;
+            background: white;
+        }
+
+        .chat-input-form {
+            display: flex;
+            gap: 12px;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #d1d5db;
+            border-radius: 24px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .chat-input:focus {
+            border-color: #4f46e5;
+        }
+
+        .send-button {
+            padding: 12px 20px;
+            background: #4f46e5;
+            color: white;
+            border: none;
+            border-radius: 24px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+
+        .send-button:hover:not(:disabled) {
+            background: #4338ca;
+        }
+
+        .send-button:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+        }
+
+        .error-message {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin: 16px 0;
+            font-size: 14px;
+        }
+
+        @media (max-width: 640px) {
+            .chat-container {
+                width: 100%;
+                height: 100vh;
+                border-radius: 0;
+            }
+
+            .message-bubble {
+                max-width: 85%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>🤖 IMC Insurance Assistant</h1>
+            <p><span id="status-indicator" class="status-indicator status-offline"></span><span id="status-text">Connecting...</span></p>
+        </div>
+
+        <div class="chat-messages" id="chat-messages">
+            <div class="message assistant">
+                <div class="message-avatar">🤖</div>
+                <div class="message-bubble">
+                    Hello! I'm your IMC Insurance Assistant. I can help you with policy questions, claims, and general insurance information. How can I assist you today?
+                </div>
+            </div>
+        </div>
+
+        <div class="typing-indicator" id="typing-indicator">
+            <div class="message assistant">
+                <div class="message-avatar">🤖</div>
+                <div class="message-bubble">
+                    <div class="typing-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-input-container">
+            <form class="chat-input-form" id="chat-form">
+                <input type="text" id="chat-input" class="chat-input" 
+                       placeholder="Type your message..." 
+                       autocomplete="off" 
+                       maxlength="1000">
+                <button type="submit" id="send-button" class="send-button">Send</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        class ChatBot {
+            constructor() {
+                this.sessionId = this.generateSessionId();
+                this.isConnected = false;
+                this.initialize();
+            }
+
+            generateSessionId() {
+                return 'web-' + Math.random().toString(36).substr(2, 9) + '-' + Date.now();
+            }
+
+            initialize() {
+                this.messagesContainer = document.getElementById('chat-messages');
+                this.typingIndicator = document.getElementById('typing-indicator');
+                this.chatForm = document.getElementById('chat-form');
+                this.chatInput = document.getElementById('chat-input');
+                this.sendButton = document.getElementById('send-button');
+                this.statusIndicator = document.getElementById('status-indicator');
+                this.statusText = document.getElementById('status-text');
+
+                this.chatForm.addEventListener('submit', (e) => this.handleSubmit(e));
+                this.chatInput.addEventListener('input', () => this.handleInput());
+
+                // Check connection status
+                this.checkStatus();
+                
+                // Check status every 30 seconds
+                setInterval(() => this.checkStatus(), 30000);
+            }
+
+            async checkStatus() {
+                try {
+                    const response = await fetch('/api/chat/health');
+                    if (response.ok) {
+                        const data = await response.text();
+                        const status = JSON.parse(data);
+                        this.updateConnectionStatus(status.healthy);
+                    } else {
+                        this.updateConnectionStatus(false);
+                    }
+                } catch (error) {
+                    console.error('Status check failed:', error);
+                    this.updateConnectionStatus(false);
+                }
+            }
+
+            updateConnectionStatus(isHealthy) {
+                this.isConnected = isHealthy;
+                if (isHealthy) {
+                    this.statusIndicator.className = 'status-indicator status-online';
+                    this.statusText.textContent = 'Connected & Ready';
+                    this.sendButton.disabled = false;
+                } else {
+                    this.statusIndicator.className = 'status-indicator status-offline';
+                    this.statusText.textContent = 'Connection Issue';
+                    this.sendButton.disabled = true;
+                }
+            }
+
+            handleInput() {
+                // Enable/disable send button based on input
+                this.sendButton.disabled = !this.isConnected || !this.chatInput.value.trim();
+            }
+
+            async handleSubmit(e) {
+                e.preventDefault();
+                
+                const message = this.chatInput.value.trim();
+                if (!message || !this.isConnected) return;
+
+                // Add user message
+                this.addMessage(message, 'user');
+                
+                // Clear input and disable form
+                this.chatInput.value = '';
+                this.setFormDisabled(true);
+                this.showTypingIndicator(true);
+
+                try {
+                    // Try streaming first, fallback to regular chat
+                    if (this.supportsSSE()) {
+                        await this.handleStreamingResponse(message);
+                    } else {
+                        await this.handleRegularResponse(message);
+                    }
+                    
+                } catch (error) {
+                    console.error('Chat error:', error);
+                    this.showError('Sorry, I encountered an error. Please try again.');
+                } finally {
+                    this.showTypingIndicator(false);
+                    this.setFormDisabled(false);
+                    this.chatInput.focus();
+                }
+            }
+
+            async handleRegularResponse(message) {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        sessionId: this.sessionId
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                this.addMessage(data.response, 'assistant');
+            }
+
+            async handleStreamingResponse(message) {
+                const url = `/api/chat/stream/${this.sessionId}?message=${encodeURIComponent(message)}`;
+                const eventSource = new EventSource(url);
+                
+                let responseText = '';
+                let messageElement = null;
+
+                return new Promise((resolve, reject) => {
+                    eventSource.onmessage = (event) => {
+                        if (event.data === '[DONE]') {
+                            eventSource.close();
+                            resolve();
+                        } else if (event.data === '[ERROR]') {
+                            eventSource.close();
+                            reject(new Error('Stream error'));
+                        } else {
+                            responseText += event.data + ' ';
+                            
+                            if (!messageElement) {
+                                messageElement = this.addStreamingMessage('assistant');
+                            }
+                            
+                            this.updateStreamingMessage(messageElement, responseText);
+                        }
+                    };
+
+                    eventSource.onerror = (error) => {
+                        console.error('SSE Error:', error);
+                        eventSource.close();
+                        reject(error);
+                    };
+                });
+            }
+
+            supportsSSE() {
+                return typeof EventSource !== 'undefined';
+            }
+
+            addMessage(text, sender) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${sender}`;
+                
+                const avatar = sender === 'user' ? '👤' : '🤖';
+                
+                messageDiv.innerHTML = `
+                    <div class="message-avatar">${avatar}</div>
+                    <div class="message-bubble">${this.escapeHtml(text)}</div>
+                `;
+                
+                this.messagesContainer.appendChild(messageDiv);
+                this.scrollToBottom();
+                return messageDiv;
+            }
+
+            addStreamingMessage(sender) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${sender}`;
+                
+                const avatar = sender === 'user' ? '👤' : '🤖';
+                
+                messageDiv.innerHTML = `
+                    <div class="message-avatar">${avatar}</div>
+                    <div class="message-bubble"></div>
+                `;
+                
+                this.messagesContainer.appendChild(messageDiv);
+                this.scrollToBottom();
+                return messageDiv;
+            }
+
+            updateStreamingMessage(messageElement, text) {
+                const bubble = messageElement.querySelector('.message-bubble');
+                bubble.textContent = text;
+                this.scrollToBottom();
+            }
+
+            showTypingIndicator(show) {
+                this.typingIndicator.style.display = show ? 'flex' : 'none';
+                if (show) {
+                    this.scrollToBottom();
+                }
+            }
+
+            setFormDisabled(disabled) {
+                this.chatInput.disabled = disabled;
+                this.sendButton.disabled = disabled || !this.isConnected;
+            }
+
+            showError(message) {
+                // Remove any existing error messages
+                const existingError = document.querySelector('.error-message');
+                if (existingError) {
+                    existingError.remove();
+                }
+
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message';
+                errorDiv.textContent = message;
+                
+                this.messagesContainer.appendChild(errorDiv);
+                this.scrollToBottom();
+
+                // Auto-remove error after 5 seconds
+                setTimeout(() => {
+                    if (errorDiv.parentNode) {
+                        errorDiv.remove();
+                    }
+                }, 5000);
+            }
+
+            scrollToBottom() {
+                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+            }
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        }
+
+        // Initialize the chatbot when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new ChatBot();
+        });
+    </script>
+</body>
+</html>

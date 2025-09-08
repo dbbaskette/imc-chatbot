@@ -345,8 +345,12 @@
                 this.showTypingIndicator(true);
 
                 try {
-                    // Always use regular chat response for now to avoid SSE issues
-                    await this.handleRegularResponse(message);
+                    // Try streaming first, fallback to regular chat
+                    if (this.supportsSSE()) {
+                        await this.handleStreamingResponse(message);
+                    } else {
+                        await this.handleRegularResponse(message);
+                    }
                     
                 } catch (error) {
                     console.error('Chat error:', error);
@@ -387,6 +391,8 @@
 
                 return new Promise((resolve, reject) => {
                     eventSource.onmessage = (event) => {
+                        console.log('SSE received:', event.data); // Debug logging
+                        
                         if (event.data === '[DONE]') {
                             eventSource.close();
                             resolve();
@@ -394,12 +400,14 @@
                             eventSource.close();
                             reject(new Error('Stream error'));
                         } else {
+                            // Add the chunk to our response text
                             responseText += event.data;
                             
                             if (!messageElement) {
                                 messageElement = this.addStreamingMessage('assistant');
                             }
                             
+                            // Update the message bubble with the current response
                             this.updateStreamingMessage(messageElement, responseText);
                         }
                     };
@@ -407,7 +415,8 @@
                     eventSource.onerror = (error) => {
                         console.error('SSE Error:', error);
                         eventSource.close();
-                        reject(error);
+                        // Fall back to regular response if streaming fails
+                        this.handleRegularResponse(message).then(resolve).catch(reject);
                     };
                 });
             }

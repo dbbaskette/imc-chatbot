@@ -345,12 +345,8 @@
                 this.showTypingIndicator(true);
 
                 try {
-                    // Try streaming first, fallback to regular chat
-                    if (this.supportsSSE()) {
-                        await this.handleStreamingResponse(message);
-                    } else {
-                        await this.handleRegularResponse(message);
-                    }
+                    // Always use regular chat response for now to avoid SSE issues
+                    await this.handleRegularResponse(message);
                     
                 } catch (error) {
                     console.error('Chat error:', error);

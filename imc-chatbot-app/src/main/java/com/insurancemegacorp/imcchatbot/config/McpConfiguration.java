@@ -3,39 +3,58 @@ package com.insurancemegacorp.imcchatbot.config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.api.Advisor;
-import org.springframework.ai.openai.OpenAiChatModel;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.context.annotation.Profile;
-
-import java.util.List;
+import org.springframework.context.event.EventListener;
 
 /**
- * MCP Configuration that only activates when MCP dependencies are present
- * and the MCP profile is active
+ * Simplified MCP Configuration following PlumChat's working pattern
+ * Creates ChatClient with MCP tools when available
  */
 @Configuration
-@ConditionalOnClass(name = "org.springframework.ai.mcp.client.McpClient")
-@Profile("mcp")
 public class McpConfiguration {
     
     private static final Logger log = LoggerFactory.getLogger(McpConfiguration.class);
 
+    @Value("${imc.chatbot.system-prompt}")
+    private String systemPrompt;
+
     /**
-     * Enhanced ChatClient with MCP tool support when available
+     * ChatClient with MCP tool support - PlumChat's exact working pattern
      */
     @Bean
     @Primary
-    @ConditionalOnProperty(name = "spring.ai.mcp.client.enabled", havingValue = "true", matchIfMissing = true)
-    public ChatClient mcpEnabledChatClient(OpenAiChatModel chatModel, List<Advisor> advisors) {
-        log.info("🔧 Configuring MCP-enabled ChatClient with {} advisors", advisors.size());
+    public ChatClient chatClient(ChatClient.Builder chatClientBuilder, @Autowired(required = false) ToolCallbackProvider tools) {
+        log.info("🔧 Configuring MCP-enabled ChatClient with tools");
+        log.info("🛠️  ToolCallbackProvider available: {}", tools != null);
         
-        return ChatClient.builder(chatModel)
-            .defaultAdvisors(advisors)
+        if (tools != null) {
+            log.info("✅ MCP tools will be integrated into ChatClient");
+        } else {
+            log.warn("⚠️  No MCP tools available - running without tool integration");
+        }
+        
+        // Use PlumChat's exact pattern
+        return chatClientBuilder
+            .defaultToolCallbacks(tools)
+            .defaultSystem(systemPrompt)
             .build();
+    }
+    
+    /**
+     * Report MCP status after application startup
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void reportMcpStatus() {
+        log.info("🎯 ========== MCP STATUS REPORT ==========");
+        log.info("🟢 MCP Configuration: ACTIVE");
+        log.info("🔧 Tools discovered from MCP servers will be available for AI usage");
+        log.info("✅ MCP integration ready!");
+        log.info("🎯 =======================================");
     }
 }

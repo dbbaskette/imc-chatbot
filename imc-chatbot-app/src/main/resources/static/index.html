@@ -270,6 +270,7 @@
             constructor() {
                 this.sessionId = this.generateSessionId();
                 this.isConnected = false;
+                this.showDebugInfo = false; // Set to true for debugging
                 this.initialize();
             }
 
@@ -339,6 +340,9 @@
                 // Add user message
                 this.addMessage(message, 'user');
                 
+                // Store the message for comparison
+                this.lastUserMessage = message;
+                
                 // Clear input and disable form
                 this.chatInput.value = '';
                 this.setFormDisabled(true);
@@ -389,6 +393,7 @@
                 const eventSource = new EventSource(url);
                 
                 let responseText = '';
+                let rawResponseText = ''; // For debugging - store unprocessed version
                 let messageElement = null;
 
                 return new Promise((resolve, reject) => {
@@ -397,30 +402,49 @@
                     };
 
                     eventSource.onmessage = (event) => {
-                        console.log('SSE event.data:', event.data); // Keep minimal logging
+                        console.log('SSE event.data:', JSON.stringify(event.data));
                         
-                        if (event.data === '[DONE]') {
-                            console.log('Stream completed');
+                        // Extract the actual content from the SSE format
+                        // Handle malformed SSE where we get the full 'data: content\n\n' string
+                        let cleanData = event.data;
+                        if (cleanData.startsWith('data: ')) {
+                            cleanData = cleanData.substring(6);
+                        }
+                        // Remove any trailing \n\n characters but PRESERVE leading/trailing spaces!
+                        cleanData = cleanData.replace(/\n+$/, '');
+                        console.log('Cleaned data:', JSON.stringify(cleanData));
+                        
+                        if (cleanData === '[DONE]') {
+                            console.log('Stream completed - [DONE] received');
+                            
+                            // No replacement needed - streaming should now be properly formatted!
+                            if (this.showDebugInfo && messageElement && rawResponseText.length > 0) {
+                                console.log('Adding debug comparisons for analysis');
+                                this.addDebugComparisons(rawResponseText);
+                            } else {
+                                console.log('No raw response to display, rawResponseText length:', rawResponseText.length);
+                            }
+                            
                             eventSource.close();
                             resolve();
-                        } else if (event.data === '[ERROR]') {
+                            return;
+                        } else if (cleanData === '[ERROR]') {
                             console.log('Stream error');
                             eventSource.close();
                             reject(new Error('Stream error'));
-                        } else {
-                            // Clean the chunk - remove any "data: " prefix that shouldn't be there
-                            let cleanChunk = event.data;
-                            if (cleanChunk.startsWith('data: ')) {
-                                cleanChunk = cleanChunk.substring(6); // Remove "data: " prefix
-                            }
+                            return;
+                        }
+                        
+                        // Only process if it's not a control message and has content
+                        if (cleanData && cleanData.trim() !== '' && cleanData !== '[DONE]' && cleanData !== '[ERROR]') {
+                            console.log('Processing content chunk:', JSON.stringify(cleanData));
+                            // Use the cleaned data (without 'data: ' prefix and newlines)
+                            let cleanChunk = cleanData;
                             
-                            // Add the cleaned chunk to our response text with proper spacing
-                            if (responseText.length > 0) {
-                                // Add space only if we don't already have one and the chunk doesn't start with punctuation
-                                if (!responseText.endsWith(' ') && !cleanChunk.match(/^[.,!?;:)}\]]/)) {
-                                    responseText += ' ';
-                                }
-                            }
+                            // Store raw version for debugging
+                            rawResponseText += cleanChunk;
+                            
+                            // Add the cleaned chunk to our response text
                             responseText += cleanChunk;
                             
                             if (!messageElement) {
@@ -429,6 +453,8 @@
                             
                             // Update the message bubble with clean response text
                             this.updateStreamingMessage(messageElement, responseText);
+                        } else {
+                            console.log('Skipped chunk (control message or empty):', JSON.stringify(cleanData));
                         }
                     };
 
@@ -437,9 +463,14 @@
                         console.error('EventSource readyState:', eventSource.readyState);
                         eventSource.close();
                         
-                        // Fall back to regular response if streaming fails
-                        console.log('Falling back to regular response');
-                        this.handleRegularResponse(message).then(resolve).catch(reject);
+                        // Only fall back if we haven't received any content yet
+                        if (!messageElement) {
+                            console.log('No content received, falling back to regular response');
+                            this.handleRegularResponse(message).then(resolve).catch(reject);
+                        } else {
+                            console.log('Stream ended with error but content was received');
+                            resolve();
+                        }
                     };
                 });
             }
@@ -482,8 +513,13 @@
 
             updateStreamingMessage(messageElement, text) {
                 const bubble = messageElement.querySelector('.message-bubble');
-                // Clean up the text - normalize whitespace and remove extra line breaks
-                const cleanText = text.replace(/data:\s*/g, '').replace(/\s+/g, ' ').trim();
+                // Minimal processing - Spring AI chunks should be concatenated naturally
+                // The key insight: each chunk already has proper spacing, don't destroy it!
+                const cleanText = text
+                    .replace(/data:\s*/g, '') // Remove any stray 'data:' prefixes
+                    .replace(/\s{3,}/g, ' ')   // Only collapse excessive whitespace (3+ spaces)
+                    .replace(/\n{3,}/g, '\n\n') // Only collapse excessive line breaks
+                    .trim(); // Only trim leading/trailing whitespace
                 bubble.textContent = cleanText;
                 this.scrollToBottom();
             }
@@ -524,6 +560,88 @@
 
             scrollToBottom() {
                 this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+            }
+
+            async replaceStreamingWithCleanVersion(messageElement, message) {
+                try {
+                    console.log('Fetching clean response to replace streaming version');
+                    const response = await fetch('/api/chat', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            message: message,
+                            sessionId: this.sessionId + '-clean'
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        const bubble = messageElement.querySelector('.message-bubble');
+                        
+                        // Smooth transition: fade out, replace content, fade in
+                        bubble.style.transition = 'opacity 0.3s ease';
+                        bubble.style.opacity = '0.5';
+                        
+                        setTimeout(() => {
+                            bubble.textContent = data.response;
+                            bubble.style.opacity = '1';
+                        }, 150);
+                        
+                        console.log('✅ Replaced streaming response with clean version');
+                    }
+                } catch (error) {
+                    console.error('Failed to fetch clean replacement:', error);
+                }
+            }
+            
+            addDebugComparisons(rawResponseText) {
+                // Add raw streaming debug box
+                const rawDiv = document.createElement('div');
+                rawDiv.className = 'message assistant';
+                rawDiv.innerHTML = `
+                    <div class="message-avatar">📝</div>
+                    <div class="message-bubble" style="background: #f0f0f0; font-size: 12px; margin-top: 8px; border: 1px solid #ccc;">
+                        <strong>Raw streaming chunks (${rawResponseText.length} chars):</strong><br>
+                        <pre style="white-space: pre-wrap; font-family: monospace; font-size: 10px;">${this.escapeHtml(rawResponseText)}</pre>
+                    </div>
+                `;
+                this.messagesContainer.appendChild(rawDiv);
+                this.scrollToBottom();
+            }
+
+            async addNonStreamingComparison(message) {
+                try {
+                    console.log('Fetching non-streaming response for comparison');
+                    const response = await fetch('/api/chat', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            message: message,
+                            sessionId: this.sessionId + '-compare'
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        const compareDiv = document.createElement('div');
+                        compareDiv.className = 'message assistant';
+                        compareDiv.innerHTML = `
+                            <div class="message-avatar">⚙️</div>
+                            <div class="message-bubble" style="background: #e8f4f8; border: 1px solid #0ea5e9; font-size: 12px; margin-top: 8px;">
+                                <strong>Non-streaming response for comparison:</strong><br>
+                                ${this.escapeHtml(data.response)}
+                            </div>
+                        `;
+                        this.messagesContainer.appendChild(compareDiv);
+                        this.scrollToBottom();
+                    }
+                } catch (error) {
+                    console.error('Failed to fetch non-streaming comparison:', error);
+                }
             }
 
             escapeHtml(text) {

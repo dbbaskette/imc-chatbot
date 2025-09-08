@@ -67,10 +67,10 @@ public class ChatController {
             return chatService.chatStream(sessionId, message)
                 .filter(chunk -> StringUtils.hasText(chunk.trim())) // Filter out empty chunks first
                 .map(chunk -> {
-                    // Spring AI sends clean content, format correctly for SSE
-                    String cleanChunk = chunk.trim();
-                    log.info("📡 Processing chunk: '{}'", cleanChunk);
-                    return "data: " + cleanChunk + "\n\n";
+                    // Spring AI sends clean content tokens, preserve spacing
+                    // Don't trim - spaces between tokens are important!
+                    log.info("📡 Processing chunk: '{}'", chunk);
+                    return "data: " + chunk + "\n\n";
                 })
                 .concatWith(Flux.just("data: [DONE]\n\n"))
                 .delayElements(Duration.ofMillis(30))

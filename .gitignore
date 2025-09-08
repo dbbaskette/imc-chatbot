@@ -81,4 +81,5 @@ yarn-error.log*
 
 # Spring Boot
 spring.log
-application.log
+application.log*.yml
+*.properties

@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.insurancemegacorp</groupId>
         <artifactId>imc-chatbot-parent</artifactId>
-        <version>1.0.0</version>
+        <version>1.0.1</version>
     </parent>
     
     <artifactId>imc-chatbot-app</artifactId>
@@ -38,11 +38,10 @@
             <artifactId>spring-ai-starter-model-openai</artifactId>
         </dependency>
         
-        <!-- Optional MCP Client - conditional -->
+        <!-- MCP Client for tool integration -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-client-webflux</artifactId>
-            <optional>true</optional>
         </dependency>
         
         <!-- Test Dependencies -->

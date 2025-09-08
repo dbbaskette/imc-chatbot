@@ -4,10 +4,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
@@ -25,16 +23,12 @@ public class ChatService {
     
     private final ChatClient chatClient;
     private final Map<String, List<Message>> conversationHistory;
-    private final SystemMessage systemMessage;
     
-    public ChatService(ChatClient chatClient, 
-                      @Value("${imc.chatbot.system-prompt}") String systemPrompt) {
+    public ChatService(ChatClient chatClient) {
         this.chatClient = chatClient;
         this.conversationHistory = new ConcurrentHashMap<>();
-        this.systemMessage = new SystemMessage(systemPrompt);
         
-        log.info("✅ ChatService initialized with Spring AI ChatClient");
-        log.debug("System prompt loaded: {} characters", systemPrompt.length());
+        log.info("✅ ChatService initialized with MCP-enabled ChatClient");
     }
     
     /**
@@ -51,10 +45,7 @@ public class ChatService {
             // Get or create conversation history
             List<Message> history = conversationHistory.computeIfAbsent(sessionId, k -> new ArrayList<>());
             
-            // Add system message if this is the first message in conversation
-            if (history.isEmpty()) {
-                history.add(systemMessage);
-            }
+            // System message handled by ChatClient defaultSystem() configuration
             
             // Add user message to history
             UserMessage userMsg = new UserMessage(userMessage);
@@ -72,8 +63,8 @@ public class ChatService {
             long responseTime = System.currentTimeMillis() - startTime;
             
             // Ensure response is not null or empty
-            if (!StringUtils.hasText(response)) {
-                log.warn("⚠️ Received empty response, providing fallback");
+            if (response == null || response.trim().isEmpty()) {
+                log.warn("⚠️ Received null/empty response, providing fallback");
                 response = "I apologize, but I'm unable to generate a response at this time. Please try again.";
             }
             
@@ -109,10 +100,7 @@ public class ChatService {
             // Get or create conversation history
             List<Message> history = conversationHistory.computeIfAbsent(sessionId, k -> new ArrayList<>());
             
-            // Add system message if this is the first message in conversation
-            if (history.isEmpty()) {
-                history.add(systemMessage);
-            }
+            // System message handled by ChatClient defaultSystem() configuration
             
             // Add user message to history
             UserMessage userMsg = new UserMessage(userMessage);

@@ -130,7 +130,7 @@ public class ChatService {
             
             return responseStream
                 .doOnNext(chunk -> {
-                    log.debug("📡 Streaming chunk for session {}: {}", sessionId, chunk);
+                    log.info("📡 Raw Spring AI chunk for session {}: '{}'", sessionId, chunk);
                     fullResponse.append(chunk);
                 })
                 .doOnComplete(() -> {

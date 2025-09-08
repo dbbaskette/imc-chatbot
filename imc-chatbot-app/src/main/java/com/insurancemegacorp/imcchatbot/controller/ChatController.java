@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
@@ -64,17 +65,16 @@ public class ChatController {
             log.info("📡 Stream chat request from session: {}", sessionId);
             
             return chatService.chatStream(sessionId, message)
+                .filter(chunk -> StringUtils.hasText(chunk.trim())) // Filter out empty chunks first
                 .map(chunk -> {
-                    // Clean up the chunk and format for SSE
+                    // Spring AI sends clean content, format correctly for SSE
                     String cleanChunk = chunk.trim();
-                    if (cleanChunk.isEmpty()) {
-                        return ""; // Skip empty chunks
-                    }
+                    log.info("📡 Processing chunk: '{}'", cleanChunk);
                     return "data: " + cleanChunk + "\n\n";
                 })
-                .filter(chunk -> !chunk.isEmpty()) // Filter out empty chunks
                 .concatWith(Flux.just("data: [DONE]\n\n"))
-                .delayElements(Duration.ofMillis(20)) // Small delay for better UX
+                .delayElements(Duration.ofMillis(30))
+                .doOnNext(formattedChunk -> log.info("📡 Sending formatted SSE: {}", formattedChunk.replace("\n", "\\n")))
                 .doOnError(error -> log.error("❌ Stream error for session {}: {}", sessionId, error.getMessage()))
                 .onErrorReturn("data: [ERROR]\n\n");
                 

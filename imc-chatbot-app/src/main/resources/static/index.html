@@ -384,27 +384,39 @@
 
             async handleStreamingResponse(message) {
                 const url = `/api/chat/stream/${this.sessionId}?message=${encodeURIComponent(message)}`;
+                console.log('Starting SSE stream to:', url);
+                
                 const eventSource = new EventSource(url);
                 
                 let responseText = '';
                 let messageElement = null;
 
                 return new Promise((resolve, reject) => {
+                    eventSource.onopen = () => {
+                        console.log('SSE connection opened');
+                    };
+
                     eventSource.onmessage = (event) => {
-                        console.log('SSE received:', event.data); // Debug logging
+                        console.log('SSE received raw event:', event);
+                        console.log('SSE event.data:', event.data);
+                        console.log('SSE event.type:', event.type);
                         
                         if (event.data === '[DONE]') {
+                            console.log('SSE stream completed');
                             eventSource.close();
                             resolve();
                         } else if (event.data === '[ERROR]') {
+                            console.log('SSE stream error received');
                             eventSource.close();
                             reject(new Error('Stream error'));
                         } else {
                             // Add the chunk to our response text
                             responseText += event.data;
+                            console.log('Current response text:', responseText);
                             
                             if (!messageElement) {
                                 messageElement = this.addStreamingMessage('assistant');
+                                console.log('Created message element');
                             }
                             
                             // Update the message bubble with the current response
@@ -413,9 +425,12 @@
                     };
 
                     eventSource.onerror = (error) => {
-                        console.error('SSE Error:', error);
+                        console.error('SSE connection error:', error);
+                        console.error('EventSource readyState:', eventSource.readyState);
                         eventSource.close();
+                        
                         // Fall back to regular response if streaming fails
+                        console.log('Falling back to regular response');
                         this.handleRegularResponse(message).then(resolve).catch(reject);
                     };
                 });

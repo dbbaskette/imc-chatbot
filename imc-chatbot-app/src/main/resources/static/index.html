@@ -397,29 +397,34 @@
                     };
 
                     eventSource.onmessage = (event) => {
-                        console.log('SSE received raw event:', event);
-                        console.log('SSE event.data:', event.data);
-                        console.log('SSE event.type:', event.type);
+                        console.log('SSE event.data:', event.data); // Keep minimal logging
                         
                         if (event.data === '[DONE]') {
-                            console.log('SSE stream completed');
+                            console.log('Stream completed');
                             eventSource.close();
                             resolve();
                         } else if (event.data === '[ERROR]') {
-                            console.log('SSE stream error received');
+                            console.log('Stream error');
                             eventSource.close();
                             reject(new Error('Stream error'));
                         } else {
-                            // Add the chunk to our response text
-                            responseText += event.data;
-                            console.log('Current response text:', responseText);
+                            // Clean the chunk - remove any "data: " prefix that shouldn't be there
+                            let cleanChunk = event.data;
+                            if (cleanChunk.startsWith('data: ')) {
+                                cleanChunk = cleanChunk.substring(6); // Remove "data: " prefix
+                            }
+                            
+                            // Add the cleaned chunk to our response text
+                            if (responseText.length > 0 && !responseText.endsWith(' ') && !cleanChunk.startsWith(' ')) {
+                                responseText += ' ';
+                            }
+                            responseText += cleanChunk;
                             
                             if (!messageElement) {
                                 messageElement = this.addStreamingMessage('assistant');
-                                console.log('Created message element');
                             }
                             
-                            // Update the message bubble with the current response
+                            // Update the message bubble with clean response text
                             this.updateStreamingMessage(messageElement, responseText);
                         }
                     };
@@ -474,7 +479,9 @@
 
             updateStreamingMessage(messageElement, text) {
                 const bubble = messageElement.querySelector('.message-bubble');
-                bubble.textContent = text;
+                // Clean up the text - remove any remaining formatting issues
+                const cleanText = text.replace(/data:\s*/g, '').trim();
+                bubble.textContent = cleanText;
                 this.scrollToBottom();
             }
 

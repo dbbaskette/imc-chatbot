@@ -64,9 +64,17 @@ public class ChatController {
             log.info("📡 Stream chat request from session: {}", sessionId);
             
             return chatService.chatStream(sessionId, message)
-                .map(chunk -> "data: " + chunk + "\n\n")
+                .map(chunk -> {
+                    // Clean up the chunk and format for SSE
+                    String cleanChunk = chunk.trim();
+                    if (cleanChunk.isEmpty()) {
+                        return ""; // Skip empty chunks
+                    }
+                    return "data: " + cleanChunk + "\n\n";
+                })
+                .filter(chunk -> !chunk.isEmpty()) // Filter out empty chunks
                 .concatWith(Flux.just("data: [DONE]\n\n"))
-                .delayElements(Duration.ofMillis(10)) // Small delay to prevent overwhelming client
+                .delayElements(Duration.ofMillis(20)) // Small delay for better UX
                 .doOnError(error -> log.error("❌ Stream error for session {}: {}", sessionId, error.getMessage()))
                 .onErrorReturn("data: [ERROR]\n\n");
                 

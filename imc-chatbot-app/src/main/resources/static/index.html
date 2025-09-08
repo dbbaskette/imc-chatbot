@@ -398,7 +398,7 @@
                             eventSource.close();
                             reject(new Error('Stream error'));
                         } else {
-                            responseText += event.data + ' ';
+                            responseText += event.data;
                             
                             if (!messageElement) {
                                 messageElement = this.addStreamingMessage('assistant');

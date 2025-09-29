@@ -212,6 +212,120 @@
             font-size: 14px;
         }
 
+        /* Table Styles */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            font-size: 13px;
+        }
+
+        .data-table th,
+        .data-table td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .data-table th {
+            background: #f8fafc;
+            font-weight: 600;
+            color: #374151;
+            border-bottom: 2px solid #d1d5db;
+        }
+
+        .data-table tbody tr:hover {
+            background: #f9fafb;
+        }
+
+        .data-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .table-container {
+            margin: 8px 0;
+            overflow-x: auto;
+            border-radius: 8px;
+        }
+
+        .table-info {
+            font-size: 12px;
+            color: #6b7280;
+            margin-bottom: 4px;
+        }
+
+        /* Table Processing Indicator */
+        .table-processing {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+            border: 1px solid #0ea5e9;
+            border-radius: 8px;
+            color: #0369a1;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .loading-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #bae6fd;
+            border-top: 2px solid #0ea5e9;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Customer Selection Styles */
+        .customer-selector {
+            padding: 15px 20px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f8fafc;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 14px;
+        }
+
+        .customer-selector label {
+            font-weight: 600;
+            color: #374151;
+            min-width: fit-content;
+        }
+
+        .customer-selector select {
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 14px;
+            background: white;
+            color: #374151;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .customer-selector select:focus {
+            outline: none;
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        .customer-info {
+            font-size: 12px;
+            color: #6b7280;
+            margin-left: auto;
+        }
+
         @media (max-width: 640px) {
             .chat-container {
                 width: 100%;
@@ -230,6 +344,19 @@
         <div class="chat-header">
             <h1>🤖 IMC Insurance Assistant</h1>
             <p><span id="status-indicator" class="status-indicator status-offline"></span><span id="status-text">Connecting...</span></p>
+        </div>
+
+        <div class="customer-selector">
+            <label for="customer-select">Customer ID:</label>
+            <select id="customer-select">
+                <option value="">Select a customer...</option>
+                <option value="100001">100001 - Sarah Chen</option>
+                <option value="100002">100002 - Emily Carter</option>
+                <option value="100003">100003 - Benjamin Rivera</option>
+                <option value="100004">100004 - Michael Harris</option>
+                <option value="100005">100005 - David Lee</option>
+            </select>
+            <span class="customer-info" id="customer-info">Please select a customer to get personalized assistance</span>
         </div>
 
         <div class="chat-messages" id="chat-messages">
@@ -286,15 +413,21 @@
                 this.sendButton = document.getElementById('send-button');
                 this.statusIndicator = document.getElementById('status-indicator');
                 this.statusText = document.getElementById('status-text');
+                this.customerSelect = document.getElementById('customer-select');
+                this.customerInfo = document.getElementById('customer-info');
 
                 this.chatForm.addEventListener('submit', (e) => this.handleSubmit(e));
                 this.chatInput.addEventListener('input', () => this.handleInput());
+                this.customerSelect.addEventListener('change', () => this.handleCustomerChange());
 
                 // Check connection status
                 this.checkStatus();
                 
                 // Check status every 30 seconds
                 setInterval(() => this.checkStatus(), 30000);
+                
+                // Initialize customer selection state
+                this.handleCustomerChange();
             }
 
             async checkStatus() {
@@ -318,24 +451,46 @@
                 if (isHealthy) {
                     this.statusIndicator.className = 'status-indicator status-online';
                     this.statusText.textContent = 'Connected & Ready';
-                    this.sendButton.disabled = false;
                 } else {
                     this.statusIndicator.className = 'status-indicator status-offline';
-                    this.statusText.textContent = 'Connection Issue';
-                    this.sendButton.disabled = true;
+                    this.statusText.textContent = 'Ready (Health Check Issue)';
                 }
+                // Don't disable send button based on health check - let handleInput() manage it
+                // since actual chat functionality works even when health check fails
+                this.handleInput();
             }
 
             handleInput() {
-                // Enable/disable send button based on input
-                this.sendButton.disabled = !this.isConnected || !this.chatInput.value.trim();
+                // Enable/disable send button based on input and customer selection
+                // Don't depend on health check connection status since it may fail due to GenAI URL issues
+                // but actual chat functionality still works
+                const hasInput = this.chatInput.value.trim();
+                const hasCustomer = this.customerSelect.value;
+                this.sendButton.disabled = !hasInput || !hasCustomer;
+            }
+
+            handleCustomerChange() {
+                const selectedCustomer = this.customerSelect.value;
+                if (selectedCustomer) {
+                    const customerText = this.customerSelect.options[this.customerSelect.selectedIndex].text;
+                    this.customerInfo.textContent = `Selected: ${customerText}`;
+                    this.customerInfo.style.color = '#059669'; // Green
+                } else {
+                    this.customerInfo.textContent = 'Please select a customer to get personalized assistance';
+                    this.customerInfo.style.color = '#6b7280'; // Gray
+                }
+                
+                // Update send button state
+                this.handleInput();
             }
 
             async handleSubmit(e) {
                 e.preventDefault();
                 
                 const message = this.chatInput.value.trim();
-                if (!message || !this.isConnected) return;
+                const customerId = this.customerSelect.value;
+                
+                if (!message || !this.isConnected || !customerId) return;
 
                 // Add user message
                 this.addMessage(message, 'user');
@@ -351,9 +506,9 @@
                 try {
                     // Try streaming first, fallback to regular chat
                     if (this.supportsSSE()) {
-                        await this.handleStreamingResponse(message);
+                        await this.handleStreamingResponse(message, customerId);
                     } else {
-                        await this.handleRegularResponse(message);
+                        await this.handleRegularResponse(message, customerId);
                     }
                     
                 } catch (error) {
@@ -366,7 +521,7 @@
                 }
             }
 
-            async handleRegularResponse(message) {
+            async handleRegularResponse(message, customerId) {
                 const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: {
@@ -374,7 +529,8 @@
                     },
                     body: JSON.stringify({
                         message: message,
-                        sessionId: this.sessionId
+                        sessionId: this.sessionId,
+                        customerId: customerId
                     })
                 });
 
@@ -386,15 +542,20 @@
                 this.addMessage(data.response, 'assistant');
             }
 
-            async handleStreamingResponse(message) {
-                const url = `/api/chat/stream/${this.sessionId}?message=${encodeURIComponent(message)}`;
+            async handleStreamingResponse(message, customerId) {
+                const url = `/api/chat/stream/${this.sessionId}?message=${encodeURIComponent(message)}&customerId=${encodeURIComponent(customerId)}`;
                 console.log('Starting SSE stream to:', url);
-                
+
                 const eventSource = new EventSource(url);
-                
+
                 let responseText = '';
                 let rawResponseText = ''; // For debugging - store unprocessed version
                 let messageElement = null;
+
+                // JSON buffering state
+                let isBufferingJson = false;
+                let jsonBuffer = '';
+                let preJsonText = '';
 
                 return new Promise((resolve, reject) => {
                     eventSource.onopen = () => {
@@ -403,28 +564,29 @@
 
                     eventSource.onmessage = (event) => {
                         console.log('SSE event.data:', JSON.stringify(event.data));
-                        
+
                         // Extract the actual content from the SSE format
-                        // Handle malformed SSE where we get the full 'data: content\n\n' string
                         let cleanData = event.data;
                         if (cleanData.startsWith('data: ')) {
                             cleanData = cleanData.substring(6);
                         }
-                        // Remove any trailing \n\n characters but PRESERVE leading/trailing spaces!
                         cleanData = cleanData.replace(/\n+$/, '');
                         console.log('Cleaned data:', JSON.stringify(cleanData));
-                        
+
                         if (cleanData === '[DONE]') {
                             console.log('Stream completed - [DONE] received');
-                            
-                            // No replacement needed - streaming should now be properly formatted!
+
+                            // If we were buffering JSON, process it now
+                            if (isBufferingJson && jsonBuffer) {
+                                console.log('Processing final buffered JSON:', jsonBuffer.substring(0, 100) + '...');
+                                this.renderCompleteResponse(messageElement, preJsonText + jsonBuffer);
+                            }
+
                             if (this.showDebugInfo && messageElement && rawResponseText.length > 0) {
                                 console.log('Adding debug comparisons for analysis');
                                 this.addDebugComparisons(rawResponseText);
-                            } else {
-                                console.log('No raw response to display, rawResponseText length:', rawResponseText.length);
                             }
-                            
+
                             eventSource.close();
                             resolve();
                             return;
@@ -434,25 +596,45 @@
                             reject(new Error('Stream error'));
                             return;
                         }
-                        
+
                         // Only process if it's not a control message and has content
                         if (cleanData && cleanData.trim() !== '' && cleanData !== '[DONE]' && cleanData !== '[ERROR]') {
                             console.log('Processing content chunk:', JSON.stringify(cleanData));
-                            // Use the cleaned data (without 'data: ' prefix and newlines)
-                            let cleanChunk = cleanData;
-                            
+
                             // Store raw version for debugging
-                            rawResponseText += cleanChunk;
-                            
-                            // Add the cleaned chunk to our response text
-                            responseText += cleanChunk;
-                            
+                            rawResponseText += cleanData;
+
+                            // Add to response text for analysis
+                            responseText += cleanData;
+
                             if (!messageElement) {
                                 messageElement = this.addStreamingMessage('assistant');
                             }
-                            
-                            // Update the message bubble with clean response text
-                            this.updateStreamingMessage(messageElement, responseText);
+
+                            // Check if we should start buffering JSON
+                            if (!isBufferingJson && this.shouldStartJsonBuffering(responseText)) {
+                                console.log('🔄 Starting JSON buffering mode');
+                                isBufferingJson = true;
+                                preJsonText = this.extractPreJsonText(responseText);
+                                jsonBuffer = this.extractJsonPortion(responseText);
+
+                                // Show processing indicator
+                                this.showTableProcessingIndicator(messageElement, preJsonText);
+                            } else if (isBufferingJson) {
+                                // Continue buffering JSON
+                                jsonBuffer += cleanData;
+                                console.log('📦 Buffering JSON chunk, total length:', jsonBuffer.length);
+
+                                // Check if JSON is complete
+                                if (this.isJsonComplete(jsonBuffer)) {
+                                    console.log('✅ JSON complete, rendering table');
+                                    this.renderCompleteResponse(messageElement, preJsonText + jsonBuffer);
+                                    isBufferingJson = false;
+                                }
+                            } else {
+                                // Normal streaming for non-table content
+                                this.updateStreamingMessage(messageElement, responseText);
+                            }
                         } else {
                             console.log('Skipped chunk (control message or empty):', JSON.stringify(cleanData));
                         }
@@ -462,11 +644,11 @@
                         console.error('SSE connection error:', error);
                         console.error('EventSource readyState:', eventSource.readyState);
                         eventSource.close();
-                        
+
                         // Only fall back if we haven't received any content yet
                         if (!messageElement) {
                             console.log('No content received, falling back to regular response');
-                            this.handleRegularResponse(message).then(resolve).catch(reject);
+                            this.handleRegularResponse(message, customerId).then(resolve).catch(reject);
                         } else {
                             console.log('Stream ended with error but content was received');
                             resolve();
@@ -485,9 +667,11 @@
                 
                 const avatar = sender === 'user' ? '👤' : '🤖';
                 
+                const bubbleContent = this.processMessageContent(text);
+                
                 messageDiv.innerHTML = `
                     <div class="message-avatar">${avatar}</div>
-                    <div class="message-bubble">${this.escapeHtml(text)}</div>
+                    <div class="message-bubble">${bubbleContent}</div>
                 `;
                 
                 this.messagesContainer.appendChild(messageDiv);
@@ -520,8 +704,99 @@
                     .replace(/\s{3,}/g, ' ')   // Only collapse excessive whitespace (3+ spaces)
                     .replace(/\n{3,}/g, '\n\n') // Only collapse excessive line breaks
                     .trim(); // Only trim leading/trailing whitespace
-                bubble.textContent = cleanText;
+
+                // For streaming, we'll use text content first, then process for tables when done
+                bubble.innerHTML = this.processMessageContent(cleanText);
                 this.scrollToBottom();
+            }
+
+            shouldStartJsonBuffering(text) {
+                // Look for JSON array indicators - be more aggressive about detection
+                const jsonCodeBlockPattern = /```json/i;
+                const jsonArrayPattern = /\[\s*\{/;
+
+                // Start buffering as soon as we see ```json (common for table responses)
+                // or when we see the start of a JSON array
+                return jsonCodeBlockPattern.test(text) || jsonArrayPattern.test(text);
+            }
+
+            extractPreJsonText(text) {
+                // Extract text before the JSON starts - handle ```json or direct array
+                const jsonCodeBlockMatch = text.match(/(.*?)```json/s);
+                const jsonArrayMatch = text.match(/(.*?)(\[\s*\{)/s);
+
+                if (jsonCodeBlockMatch) {
+                    return jsonCodeBlockMatch[1].trim();
+                } else if (jsonArrayMatch) {
+                    return jsonArrayMatch[1].trim();
+                }
+                return '';
+            }
+
+            extractJsonPortion(text) {
+                // Extract the JSON portion that's already been received
+                if (text.includes('```json')) {
+                    // Look for everything after ```json
+                    const jsonMatch = text.match(/```json\s*(.*)/s);
+                    return jsonMatch ? jsonMatch[1] : '';
+                } else {
+                    // Look for direct JSON array
+                    const jsonMatch = text.match(/(\[\s*\{.*)/s);
+                    return jsonMatch ? jsonMatch[1] : '';
+                }
+            }
+
+            isJsonComplete(jsonBuffer) {
+                // Check if we have a complete JSON array
+                try {
+                    // Look for closing patterns
+                    if (jsonBuffer.includes('```') && jsonBuffer.match(/\]\s*```/)) {
+                        return true; // Code block complete
+                    }
+
+                    if (jsonBuffer.match(/\}\s*\]\s*$/)) {
+                        // Try to parse to verify it's complete
+                        const cleanJson = jsonBuffer.replace(/```json\s*|\s*```/g, '').trim();
+                        JSON.parse(cleanJson);
+                        return true;
+                    }
+                } catch (e) {
+                    // Not valid JSON yet, continue buffering
+                }
+                return false;
+            }
+
+            showTableProcessingIndicator(messageElement, preText) {
+                const bubble = messageElement.querySelector('.message-bubble');
+
+                let content = '';
+                if (preText) {
+                    content += preText.replace(/\n/g, '<br>') + '<br><br>';
+                }
+
+                content += `
+                    <div class="table-processing">
+                        <div class="loading-spinner"></div>
+                        📊 Processing table data...
+                    </div>
+                `;
+
+                bubble.innerHTML = content;
+                this.scrollToBottom();
+            }
+
+            renderCompleteResponse(messageElement, fullText) {
+                const bubble = messageElement.querySelector('.message-bubble');
+
+                // Smooth transition
+                bubble.style.transition = 'opacity 0.3s ease';
+                bubble.style.opacity = '0.7';
+
+                setTimeout(() => {
+                    bubble.innerHTML = this.processMessageContent(fullText);
+                    bubble.style.opacity = '1';
+                    this.scrollToBottom();
+                }, 200);
             }
 
             showTypingIndicator(show) {
@@ -533,7 +808,14 @@
 
             setFormDisabled(disabled) {
                 this.chatInput.disabled = disabled;
-                this.sendButton.disabled = disabled || !this.isConnected;
+                // Only disable based on form state, not connection status
+                // since connection status may be false due to GenAI health check issues
+                if (disabled) {
+                    this.sendButton.disabled = true;
+                } else {
+                    // Re-enable based on input and customer selection when form is enabled
+                    this.handleInput();
+                }
             }
 
             showError(message) {
@@ -642,6 +924,146 @@
                 } catch (error) {
                     console.error('Failed to fetch non-streaming comparison:', error);
                 }
+            }
+
+            processMessageContent(text) {
+                // Look for JSON arrays that could be tables
+                return this.detectAndRenderTables(text);
+            }
+
+            detectAndRenderTables(text) {
+                console.log('Detecting tables in text:', text.substring(0, 200) + '...');
+                
+                // Regular expression to find JSON arrays in code blocks
+                const jsonArrayPattern = /```json\s*(\[\s*\{[\s\S]*?\}\s*\])\s*```/gi;
+                
+                let processedText = text;
+                let match;
+                let tableCount = 0;
+                
+                // Reset the regex index for global search
+                jsonArrayPattern.lastIndex = 0;
+                
+                while ((match = jsonArrayPattern.exec(text)) !== null) {
+                    try {
+                        console.log('Found JSON block:', match[1]);
+                        const jsonData = JSON.parse(match[1]);
+                        if (Array.isArray(jsonData) && jsonData.length > 0 && typeof jsonData[0] === 'object') {
+                            const tableHtml = this.createTableFromJson(jsonData);
+                            processedText = processedText.replace(match[0], tableHtml);
+                            tableCount++;
+                            console.log('Created table', tableCount);
+                        }
+                    } catch (e) {
+                        console.warn('Failed to parse JSON table:', e, 'JSON:', match[1]);
+                        // Leave the original JSON block if parsing fails
+                    }
+                }
+                
+                // Also check for plain JSON arrays (without ```json``` wrapper)
+                // Look for JSON arrays that might be on multiple lines
+                const multiLineJsonPattern = /(\[\s*\{[\s\S]*?\}\s*\])/g;
+                multiLineJsonPattern.lastIndex = 0;
+                
+                while ((match = multiLineJsonPattern.exec(processedText)) !== null) {
+                    // Skip if this JSON is already inside a code block or table
+                    if (match.index > 0) {
+                        const beforeMatch = processedText.substring(Math.max(0, match.index - 10), match.index);
+                        if (beforeMatch.includes('<table') || beforeMatch.includes('```')) {
+                            continue;
+                        }
+                    }
+                    
+                    try {
+                        console.log('Found plain JSON:', match[1]);
+                        const jsonData = JSON.parse(match[1]);
+                        if (Array.isArray(jsonData) && jsonData.length > 0 && typeof jsonData[0] === 'object') {
+                            const tableHtml = this.createTableFromJson(jsonData);
+                            processedText = processedText.replace(match[0], tableHtml);
+                            tableCount++;
+                            console.log('Created table', tableCount, 'from plain JSON');
+                        }
+                    } catch (e) {
+                        console.warn('Failed to parse plain JSON:', e);
+                        // Not valid JSON, leave as is
+                    }
+                }
+                
+                console.log('Total tables created:', tableCount);
+                
+                // Convert remaining newlines to <br> for proper display, but preserve table HTML
+                return processedText.replace(/\n/g, '<br>');
+            }
+
+            createTableFromJson(jsonArray) {
+                if (!Array.isArray(jsonArray) || jsonArray.length === 0) {
+                    return '';
+                }
+
+                // Flatten nested objects to make them table-friendly
+                const flattenedArray = jsonArray.map(row => this.flattenObject(row));
+
+                // Get column headers from the first flattened object
+                const headers = Object.keys(flattenedArray[0]);
+
+                let tableHtml = '<div class="table-container">';
+                tableHtml += `<div class="table-info">Data table (${flattenedArray.length} rows)</div>`;
+                tableHtml += '<table class="data-table">';
+
+                // Create header
+                tableHtml += '<thead><tr>';
+                headers.forEach(header => {
+                    // Make headers more readable by capitalizing and adding spaces
+                    const readableHeader = this.makeHeaderReadable(header);
+                    tableHtml += `<th>${this.escapeHtml(readableHeader)}</th>`;
+                });
+                tableHtml += '</tr></thead>';
+
+                // Create body
+                tableHtml += '<tbody>';
+                flattenedArray.forEach(row => {
+                    tableHtml += '<tr>';
+                    headers.forEach(header => {
+                        const value = row[header] !== null && row[header] !== undefined ? row[header] : '';
+                        tableHtml += `<td>${this.escapeHtml(String(value))}</td>`;
+                    });
+                    tableHtml += '</tr>';
+                });
+                tableHtml += '</tbody>';
+
+                tableHtml += '</table></div>';
+
+                return tableHtml;
+            }
+
+            flattenObject(obj, prefix = '', result = {}) {
+                for (let key in obj) {
+                    if (obj.hasOwnProperty(key)) {
+                        const newKey = prefix ? `${prefix}.${key}` : key;
+
+                        if (obj[key] !== null && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
+                            // Recursively flatten nested objects
+                            this.flattenObject(obj[key], newKey, result);
+                        } else {
+                            // Handle arrays and primitive values
+                            result[newKey] = obj[key];
+                        }
+                    }
+                }
+                return result;
+            }
+
+            makeHeaderReadable(header) {
+                return header
+                    // Split on dots for nested properties
+                    .split('.')
+                    .map(part =>
+                        // Add spaces before capital letters and capitalize first letter
+                        part.replace(/([A-Z])/g, ' $1')
+                            .replace(/^./, str => str.toUpperCase())
+                            .trim()
+                    )
+                    .join(' - ');
             }
 
             escapeHtml(text) {

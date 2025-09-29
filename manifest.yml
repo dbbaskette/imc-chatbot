@@ -1,0 +1,30 @@
+---
+applications:
+- name: imc-chatbot-temp
+  memory: 1G
+  instances: 1
+  disk_quota: 2G
+  health-check-type: http
+  health-check-http-endpoint: /actuator/health
+  timeout: 180
+  buildpacks:
+    - java_buildpack_offline
+  path: ./imc-chatbot-app/target/imc-chatbot-app-1.0.2.jar
+  env:
+    SPRING_PROFILES_ACTIVE: cloud
+    JBP_CONFIG_OPEN_JDK_JRE: '{ jre: { version: 21.+ } }'
+    JAVA_OPTS: '-Xmx768M -Xms512M'
+
+    # Application metadata
+    IMC_CHATBOT_COMPANY: 'Insurance MegaCorp'
+    IMC_CHATBOT_ENVIRONMENT: 'cloud'
+    IMC_CHATBOT_VERSION: '1.0.2'
+    SPRING_APPLICATION_NAME: 'imc-chatbot'
+
+    # Logging configuration (for debugging)
+    LOGGING_LEVEL_COM_INSURANCEMEGACORP_IMCCHATBOT: 'DEBUG'
+    LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_AI: 'INFO'
+    LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_AI_OPENAI: 'DEBUG'
+
+  services:
+    - multi-modal

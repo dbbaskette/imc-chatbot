@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
-import java.time.Duration;
 
 @RestController
 @RequestMapping("/api/chat")
@@ -32,9 +31,9 @@ public class ChatController {
     @PostMapping
     public ResponseEntity<ChatResponse> chat(@RequestBody ChatRequest request) {
         try {
-            log.info("📨 Chat request from session: {}", request.sessionId());
+            log.info("📨 Chat request from session: {} for customer: {}", request.sessionId(), request.customerId());
             
-            String response = chatService.chat(request.sessionId(), request.message());
+            String response = chatService.chat(request.sessionId(), request.message(), request.customerId());
             
             ChatResponse chatResponse = ChatResponse.text(response, request.sessionId());
             return ResponseEntity.ok(chatResponse);
@@ -59,21 +58,21 @@ public class ChatController {
     @GetMapping(value = "/stream/{sessionId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> streamChat(
             @PathVariable String sessionId,
-            @RequestParam String message) {
+            @RequestParam String message,
+            @RequestParam String customerId) {
         
         try {
-            log.info("📡 Stream chat request from session: {}", sessionId);
+            log.info("📡 Stream chat request from session: {} for customer: {}", sessionId, customerId);
             
-            return chatService.chatStream(sessionId, message)
+            return chatService.chatStream(sessionId, message, customerId)
                 .filter(chunk -> StringUtils.hasText(chunk.trim())) // Filter out empty chunks first
                 .map(chunk -> {
-                    // Spring AI sends clean content tokens, preserve spacing
-                    // Don't trim - spaces between tokens are important!
+                    // Direct streaming without buffering for maximum speed
                     log.info("📡 Processing chunk: '{}'", chunk);
                     return "data: " + chunk + "\n\n";
                 })
                 .concatWith(Flux.just("data: [DONE]\n\n"))
-                .delayElements(Duration.ofMillis(30))
+                // No artificial delays - maximum streaming speed
                 .doOnNext(formattedChunk -> log.info("📡 Sending formatted SSE: {}", formattedChunk.replace("\n", "\\n")))
                 .doOnError(error -> log.error("❌ Stream error for session {}: {}", sessionId, error.getMessage()))
                 .onErrorReturn("data: [ERROR]\n\n");

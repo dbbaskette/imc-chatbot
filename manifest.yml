@@ -1,6 +1,6 @@
 ---
 applications:
-- name: imc-chatbot-temp
+- name: imc-chatbot
   memory: 1G
   instances: 1
   disk_quota: 2G
@@ -9,9 +9,9 @@ applications:
   timeout: 180
   buildpacks:
     - java_buildpack_offline
-  path: ./imc-chatbot-app/target/imc-chatbot-app-1.0.2.jar
+  path: ./imc-chatbot-app/target/imc-chatbot-app-2.0.0.jar
   env:
-    SPRING_PROFILES_ACTIVE: cloud
+    SPRING_PROFILES_ACTIVE: cf,remote-mcp
     JBP_CONFIG_OPEN_JDK_JRE: '{ jre: { version: 21.+ } }'
     JAVA_OPTS: '-Xmx768M -Xms512M'
 

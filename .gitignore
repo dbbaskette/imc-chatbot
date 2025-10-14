@@ -71,6 +71,7 @@ build/
 .env
 .env.local
 .env.*.local
+secrets.yml
 
 # Logs
 logs

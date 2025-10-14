@@ -26,5 +26,10 @@ applications:
     LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_AI: 'INFO'
     LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_AI_OPENAI: 'DEBUG'
 
+    # Secrets (loaded from secrets.yml via --vars-file)
+    # Must match variable names in application-cf.properties
+    OPENAI_API_KEY: ((OPENAI_API_KEY))
+    OPENAI_MODEL: ((OPENAI_MODEL))
+
   services:
     - multi-modal
